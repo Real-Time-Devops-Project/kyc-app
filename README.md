@@ -17,33 +17,33 @@ graph TD
     %% Nodes
     User((👤 User))
     
-    subgraph Edge_Layer [🌐 Edge Layer]
+    subgraph Edge_Layer ["🌐 Edge Layer"]
         CF[CloudFront CDN]
         WAF[🛡️ AWS WAF]
         S3_Web[🪣 S3 Static Web]
     end
 
-    subgraph AWS_Cloud [☁️ AWS Cloud]
+    subgraph AWS_Cloud ["☁️ AWS Cloud"]
         
-        subgraph Transit_VPC [🚦 Transit VPC (Hub)]
+        subgraph Transit_VPC ["🚦 Transit VPC (Hub)"]
             IGW[Internet Gateway]
-            subgraph Untrusted_Zone [🚫 Untrusted Zone]
+            subgraph Untrusted_Zone ["🚫 Untrusted Zone"]
                 FW_ENI[🔥 Firewall / Proxy]
             end
-            subgraph Trusted_Zone [✅ Trusted Zone]
+            subgraph Trusted_Zone ["✅ Trusted Zone"]
                 TGW_Attach[TGW Attachment]
             end
             TGW[⚡ Transit Gateway]
         end
 
-        subgraph App_VPC [⚙️ Application VPC (Spoke A)]
+        subgraph App_VPC ["⚙️ Application VPC (Spoke A)"]
             EKS[☸️ EKS Cluster]
             RDS[🗄️ RDS Database]
             DocDB[📄 DocumentDB]
             Redis[⚡ Redis Cache]
         end
 
-        subgraph Mgmt_VPC [🛠️ Management VPC (Spoke B)]
+        subgraph Mgmt_VPC ["🛠️ Management VPC (Spoke B)"]
             Jenkins[🏗️ Jenkins Server]
             Bastion[🏰 Bastion Host]
             Proxy[🕵️ Proxy Server]
