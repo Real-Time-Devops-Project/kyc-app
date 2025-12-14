@@ -65,6 +65,20 @@ pipeline {
             }
         }
 
+        stage('Dockerfile Scan (Hadolint)') {
+            steps {
+                script {
+                    def services = ['frontend', 'ekyc-service', 'vkyc-service']
+                    services.each { service ->
+                        dir("kyc-app/${service}") {
+                            echo "Scanning Dockerfile for ${service}..."
+                            sh 'docker run --rm -i hadolint/hadolint < Dockerfile'
+                        }
+                    }
+                }
+            }
+        }
+
         stage('Build Docker Images') {
             steps {
                 dir('kyc-app') {
