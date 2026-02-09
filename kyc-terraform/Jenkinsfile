@@ -1,0 +1,89 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_CREDENTIALS = credentials('aws-credentials-id')
+        TF_VAR_region = 'us-east-1'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Security Scan') {
+            steps {
+                dir('environments/prod') {
+                    sh 'tfsec .'
+                }
+            }
+        }
+
+        stage('Terraform Init') {
+            steps {
+                dir('environments/prod') {
+                    sh 'terraform init'
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                dir('environments/prod') {
+                    sh 'terraform plan -out=tfplan'
+                }
+            }
+        }
+
+        stage('Terraform Apply') {
+            when {
+                branch 'main'
+            }
+            steps {
+                dir('environments/prod') {
+                    input message: 'Approve Apply?', ok: 'Yes'
+                    sh 'terraform apply -auto-approve tfplan'
+                }
+            }
+        }
+
+        stage('Update Ansible Inventory') {
+            steps {
+                script {
+                    // Fetch outputs from terraform state
+                    dir('environments/prod') {
+                        env.JENKINS_IP = sh(script: 'terraform output -raw jenkins_ip', returnStdout: true).trim()
+                        env.BASTION_IP = sh(script: 'terraform output -raw bastion_ip', returnStdout: true).trim()
+                    }
+                    
+                    // Generate inventory file
+                    dir('ansible') {
+                         sh "echo '[jenkins_servers]' > inventory"
+                         sh "echo '${env.JENKINS_IP} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_common_args=\"-o StrictHostKeyChecking=no\"' >> inventory"
+                         sh "echo '' >> inventory"
+                         sh "echo '[bastion_servers]' >> inventory"
+                         sh "echo '${env.BASTION_IP} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_common_args=\"-o StrictHostKeyChecking=no\"' >> inventory"
+                    }
+                }
+            }
+        }
+
+        stage('Ansible Configuration') {
+            steps {
+                dir('ansible') {
+                    // Install Ansible if not present (simplified check)
+                    sh 'ansible-playbook -i inventory playbook-jenkins.yml'
+                    sh 'ansible-playbook -i inventory playbook-bastion.yml'
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}

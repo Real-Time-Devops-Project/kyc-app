@@ -1,0 +1,4 @@
+PORT=3002
+PG_HOST=prod-postgres
+PG_DATABASE=kyc_prod
+MONGO_URI=mongodb://prod-mongo:27017/kyc_prod

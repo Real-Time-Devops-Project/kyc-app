@@ -1,0 +1,112 @@
+pipeline {
+    agent any
+
+    tools {
+        nodejs "${env.NODE_TOOL_NAME ?: 'nodejs-22-6-0'}"
+    }
+
+    environment {
+        AWS_REGION          = "${env.AWS_REGION ?: 'us-east-1'}"
+        ECR_REPO_NAME       = "${env.ECR_REPO_NAME ?: 'kyc-app'}"
+        EKS_CLUSTER_NAME    = "${env.EKS_CLUSTER_NAME ?: 'kyc-cluster'}"
+        SERVICE_NAME        = "${env.SERVICE_NAME ?: 'kyc-frontend'}"
+        HELM_CHART_DIR      = "${env.HELM_CHART_DIR ?: '../kyc-k8s'}"
+        
+        AWS_ACCOUNT_ID      = credentials('aws-account-id')
+        ECR_REPO_URI        = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
+        IMAGE_TAG           = "v-${BUILD_NUMBER}"
+    }
+
+    stages {
+        stage('CI: Build & Test') {
+            steps {
+                dir('kyc-frontend') {
+                    sh 'npm install'
+                    sh 'npm test' // Unit Tests
+                }
+            }
+        }
+
+        stage('CI: Build & Push Artifact') {
+            steps {
+                dir('kyc-frontend') {
+                    script {
+                        dockerImage = docker.build("${ECR_REPO_URI}:${IMAGE_TAG}")
+                        docker.withRegistry("https://${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com", "ecr:${AWS_REGION}:aws-credentials-id") {
+                            dockerImage.push()
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('CD: Dev Environment') {
+            stages {
+                stage('Deploy to Dev') {
+                    steps {
+                        sh "kubectl create namespace dev || true"
+                        dir("${HELM_CHART_DIR}") {
+                             sh "helm upgrade --install ${SERVICE_NAME} . --namespace dev --set image.repository=${ECR_REPO_URI} --set image.tag=${IMAGE_TAG} -f values-dev.yaml"
+                        }
+                    }
+                }
+                stage('Functional Test Dev') {
+                    steps {
+                        dir('kyc-frontend') {
+                            // Run Cypress
+                            sh "npm run cypress:run"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('CD: QA Environment') {
+            stages {
+                stage('Deploy to QA') {
+                    steps {
+                        sh "kubectl create namespace qa || true"
+                        dir("${HELM_CHART_DIR}") {
+                             sh "helm upgrade --install ${SERVICE_NAME} . --namespace qa --set image.repository=${ECR_REPO_URI} --set image.tag=${IMAGE_TAG} -f values-qa.yaml"
+                        }
+                    }
+                }
+                stage('Tests on QA') {
+                    // Regression Testing usually happens here
+                    steps {
+                        dir('kyc-frontend') {
+                            echo "Running Regression Suite..."
+                            sh "npm run cypress:run -- --spec 'cypress/e2e/regression/*.cy.js'"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('UAT Signoff') {
+            steps {
+                input message: "Promote ${SERVICE_NAME}:${IMAGE_TAG} to Production?", ok: "Promote"
+            }
+        }
+
+        stage('CD: Production Environment') {
+            stages {
+                stage('Deploy to Prod') {
+                    steps {
+                        sh "kubectl create namespace prod || true"
+                        dir("${HELM_CHART_DIR}") {
+                             sh "helm upgrade --install ${SERVICE_NAME} . --namespace prod --set image.repository=${ECR_REPO_URI} --set image.tag=${IMAGE_TAG} -f values-prod.yaml"
+                        }
+                    }
+                }
+                stage('Smoke Test Prod') {
+                    steps {
+                        dir('kyc-frontend') {
+                            sh "./tests/smoke/health_check.sh"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

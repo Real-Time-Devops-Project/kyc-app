@@ -1,0 +1,95 @@
+pipeline {
+    agent any
+    tools { nodejs "${env.NODE_TOOL_NAME ?: 'nodejs-22-6-0'}" }
+    
+    environment {
+        AWS_REGION       = "${env.AWS_REGION ?: 'us-east-1'}"
+        ECR_REPO_NAME    = "${env.ECR_REPO_NAME ?: 'kyc-app'}"
+        SERVICE_NAME     = "kyc-ekyc-service"
+        HELM_CHART_DIR   = "../kyc-k8s"
+        ENV_NAME         = "dev"
+        AWS_ACCOUNT_ID   = credentials('aws-account-id')
+        ECR_REPO_URI     = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
+        IMAGE_TAG        = "dev-${BUILD_NUMBER}"
+    }
+
+    stages {
+        stage('Checkout') { steps { checkout scm } }
+
+        stage('Build & Unit Test') {
+            steps {
+                dir('kyc-ekyc-service') {
+                    sh 'npm ci'
+                    sh 'npm test' // Unit Tests Only
+                }
+            }
+        }
+
+        stage('Static Analysis') {
+            steps {
+                dir('kyc-ekyc-service') {
+                    sh 'npm audit --audit-level=critical || true'
+                    // SonarQube scan would go here
+                }
+            }
+        }
+
+        stage('Build & Push Image') {
+            steps {
+                dir('kyc-ekyc-service') {
+                    script {
+                        docker.build("${ECR_REPO_URI}:${IMAGE_TAG}").push()
+                    }
+                }
+            }
+        }
+
+        stage('Update GitOps Config') {
+            steps {
+                script {
+                    // 1. Configure Git
+                    sh 'git config user.email "jenkins@kyc-app.com"'
+                    sh 'git config user.name "Jenkins CI"'
+                    
+                    // 2. Update Helm Values (values-dev.yaml)
+                    // We use yq (like jq for yaml) or simple sed to update the tag
+                    dir("../kyc-k8s") {
+                        // Ideally use a dedicated values file per service to avoid conflicts, or use yq to target specific key
+                        // For simplicity: updating the global tag (assuming 1 service per repo/chart split)
+                        // Or better: pass --set image.tag via ArgoCD, OR update a specific service-values.yaml
+                        
+                        // Strategy: We update values-dev.yaml 'image.tag' for THIS service.
+                        // NOTE: This assumes values-dev.yaml has specific keys per service or we are careful.
+                        // A better approach for Monorepo + Argo is separate value files: values-dev-ekyc.yaml
+                        
+                        sh "sed -i 's/tag: .*/tag: ${IMAGE_TAG}/' values-dev.yaml"
+                        
+                        // 3. Commit & Push
+                        sh "git add values-dev.yaml"
+                        sh "git commit -m 'GitOps: Update ${SERVICE_NAME} to ${IMAGE_TAG}'"
+                        
+                        withCredentials([usernamePassword(credentialsId: 'git-credentials', passwordVariable: 'GIT_PASS', usernameVariable: 'GIT_USER')]) {
+                             sh "git push https://${GIT_USER}:${GIT_PASS}@github.com/YOUR_ORG/kyc-app.git HEAD:dev"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Verify Sync') {
+            steps {
+                echo "Waiting for Argo CD to sync..."
+                // Optional: usage of argocd cli to wait for sync
+                // sh "argocd app wait kyc-app-dev --sync --health --operation"
+            }
+        }
+
+        stage('Dev Smoke Test') {
+            steps {
+                dir('kyc-ekyc-service') {
+                    sh "./tests/smoke/health_check.sh"
+                }
+            }
+        }
+    }
+}

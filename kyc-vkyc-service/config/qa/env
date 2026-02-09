@@ -1,0 +1,4 @@
+PORT=3002
+PG_HOST=qa-postgres
+PG_DATABASE=kyc_qa
+MONGO_URI=mongodb://qa-mongo:27017/kyc_qa

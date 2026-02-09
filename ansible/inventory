@@ -1,7 +1,0 @@
-[jenkins_servers]
-# Replace with the actual IP from Terraform Output
-1.2.3.4 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/my-key-pair.pem
-
-[bastion_servers]
-# Replace with the actual IP from Terraform Output
-5.6.7.8 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/my-key-pair.pem

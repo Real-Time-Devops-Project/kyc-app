@@ -1,0 +1,161 @@
+pipeline {
+    agent any
+
+    environment {
+        REGISTRY = 'your-ecr-registry-url' // Replace with your ECR URL
+        AWS_REGION = 'us-east-1' // Replace with your region
+        SONAR_TOKEN = credentials('sonar-token') // Assumes 'sonar-token' credential exists
+        TRIVY_CACHE_DIR = "${WORKSPACE}/.trivy-cache"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                dir('kyc-app/ekyc-service') {
+                    sh 'npm install'
+                }
+                dir('kyc-app/vkyc-service') {
+                    sh 'npm install'
+                }
+                dir('kyc-app/frontend') {
+                    sh 'npm install'
+                }
+            }
+        }
+
+        stage('Static Application Security Testing (SAST)') {
+            steps {
+                script {
+                    // Using SonarQube Scanner
+                    // Ensure 'SonarQube Scanner' tool is configured in Jenkins Global Tool Configuration
+                    def scannerHome = tool 'SonarQubeScanner'
+                    withSonarQubeEnv('SonarQube') { // 'SonarQube' is the server name in Jenkins config
+                        sh "${scannerHome}/bin/sonar-scanner \
+                            -Dsonar.projectKey=kyc-app \
+                            -Dsonar.sources=kyc-app \
+                            -Dsonar.exclusions=**/node_modules/**,**/dist/**"
+                    }
+                }
+            }
+        }
+
+        stage('Dependency Vulnerability Scan') {
+            steps {
+                // Using OWASP Dependency-Check
+                // Ensure 'OWASP Dependency-Check' plugin is installed and tool is configured
+                dependencyCheck additionalArguments: '--scan ./kyc-app --format HTML --format XML', odcInstallation: 'Dependency-Check'
+                dependencyCheckPublisher pattern: 'dependency-check-report.xml'
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
+                dir('kyc-app/ekyc-service') {
+                    sh 'npm test'
+                }
+                dir('kyc-app/vkyc-service') {
+                    sh 'npm test'
+                }
+            }
+        }
+
+        stage('Dockerfile Scan (Hadolint)') {
+            steps {
+                script {
+                    def services = ['frontend', 'ekyc-service', 'vkyc-service']
+                    services.each { service ->
+                        dir("kyc-app/${service}") {
+                            echo "Scanning Dockerfile for ${service}..."
+                            sh 'docker run --rm -i hadolint/hadolint < Dockerfile'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Build Docker Images') {
+            steps {
+                dir('kyc-app') {
+                    sh 'docker build -t kyc-frontend:latest ./frontend'
+                    sh 'docker build -t ekyc-service:latest ./ekyc-service'
+                    sh 'docker build -t vkyc-service:latest ./vkyc-service'
+                }
+            }
+        }
+
+        stage('Container Image Scan (Trivy)') {
+            steps {
+                script {
+                    // Assumes Trivy is installed on the agent
+                    sh 'trivy image --exit-code 0 --severity LOW,MEDIUM,HIGH kyc-frontend:latest'
+                    sh 'trivy image --exit-code 1 --severity CRITICAL kyc-frontend:latest'
+
+                    sh 'trivy image --exit-code 0 --severity LOW,MEDIUM,HIGH ekyc-service:latest'
+                    sh 'trivy image --exit-code 1 --severity CRITICAL ekyc-service:latest'
+
+                    sh 'trivy image --exit-code 0 --severity LOW,MEDIUM,HIGH vkyc-service:latest'
+                    sh 'trivy image --exit-code 1 --severity CRITICAL vkyc-service:latest'
+                }
+            }
+        }
+
+        stage('Push to Registry') {
+            when {
+                expression { return env.REGISTRY != 'your-ecr-registry-url' }
+            }
+            steps {
+                script {
+                    sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${REGISTRY}"
+
+                    sh "docker tag kyc-frontend:latest ${REGISTRY}/kyc-frontend:latest"
+                    sh "docker push ${REGISTRY}/kyc-frontend:latest"
+
+                    sh "docker tag ekyc-service:latest ${REGISTRY}/ekyc-service:latest"
+                    sh "docker push ${REGISTRY}/ekyc-service:latest"
+
+                    sh "docker tag vkyc-service:latest ${REGISTRY}/vkyc-service:latest"
+                    sh "docker push ${REGISTRY}/vkyc-service:latest"
+                }
+            }
+        }
+
+        stage('Deploy to EKS') {
+            steps {
+                script {
+                    // Assumes kubectl is configured on the Jenkins agent
+                    sh 'kubectl apply -f kyc-app/k8s/secrets.yaml'
+                    sh 'kubectl apply -f kyc-app/k8s/ekyc-deployment.yaml'
+                    sh 'kubectl apply -f kyc-app/k8s/vkyc-deployment.yaml'
+                    sh 'kubectl apply -f kyc-app/k8s/frontend-deployment.yaml'
+                }
+            }
+        }
+
+        stage('Dynamic Application Security Testing (DAST)') {
+            steps {
+                script {
+                    // Using OWASP ZAP
+                    // Assumes ZAP is installed or running in a container
+                    // This example runs a quick scan against the deployed frontend
+                    // Note: In a real pipeline, you might want to wait for the deployment to be ready
+                    def frontendIp = sh(script: "kubectl get svc kyc-frontend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'", returnStdout: true).trim()
+
+                    if (frontendIp) {
+                        echo "Starting DAST scan on ${frontendIp}"
+                        // Example using dockerized ZAP
+                        sh "docker run --rm -v ${WORKSPACE}:/zap/wrk/:rw -t owasp/zap2docker-stable zap-baseline.py -t http://${frontendIp} -r zap_report.html"
+                        publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: true, reportDir: '.', reportFiles: 'zap_report.html', reportName: 'ZAP Security Report', reportTitles: 'ZAP Security Report'])
+                    } else {
+                        echo "Frontend IP not found, skipping DAST"
+                    }
+                }
+            }
+        }
+    }
+}

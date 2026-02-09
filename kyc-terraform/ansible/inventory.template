@@ -1,0 +1,8 @@
+[jenkins_servers]
+${JENKINS_IP} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+
+[bastion_servers]
+${BASTION_IP} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
