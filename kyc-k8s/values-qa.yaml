@@ -1,6 +1,14 @@
 # QA Environment Values
 environment: qa
 replicaCount: 2
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: ""
+database:
+  postgres:
+    iamAuthEnabled: false
+  docdb:
+    mongoUriSecretArn: ""
 resources:
   limits:
     cpu: 500m

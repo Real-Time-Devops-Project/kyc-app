@@ -24,17 +24,19 @@ resource "aws_db_subnet_group" "rds" {
 }
 
 resource "aws_db_instance" "postgres" {
-  identifier             = "app-postgres-db"
-  allocated_storage      = 20
-  engine                 = "postgres"
-  engine_version         = "14"
-  instance_class         = "db.t3.micro"
-  db_name                = var.db_name
-  username               = var.db_username
-  password               = var.postgres_password
-  db_subnet_group_name   = aws_db_subnet_group.rds.name
-  vpc_security_group_ids = var.security_group_ids
-  skip_final_snapshot    = true
+  identifier                          = "app-postgres-db"
+  allocated_storage                   = 20
+  engine                              = "postgres"
+  engine_version                      = "14"
+  instance_class                      = "db.t3.micro"
+  db_name                             = var.db_name
+  username                            = var.db_username
+  password                            = var.manage_master_user_password ? null : var.postgres_password
+  manage_master_user_password         = var.manage_master_user_password
+  iam_database_authentication_enabled = var.enable_postgres_iam_auth
+  db_subnet_group_name                = aws_db_subnet_group.rds.name
+  vpc_security_group_ids              = var.security_group_ids
+  skip_final_snapshot                 = true
 }
 
 # --- DocumentDB ---
@@ -44,13 +46,14 @@ resource "aws_docdb_subnet_group" "docdb" {
 }
 
 resource "aws_docdb_cluster" "docdb" {
-  cluster_identifier     = "app-docdb-cluster"
-  engine                 = "docdb"
-  master_username        = var.db_username
-  master_password        = var.docdb_password
-  db_subnet_group_name   = aws_docdb_subnet_group.docdb.name
-  vpc_security_group_ids = var.security_group_ids
-  skip_final_snapshot    = true
+  cluster_identifier          = "app-docdb-cluster"
+  engine                      = "docdb"
+  master_username             = var.db_username
+  master_password             = var.manage_master_user_password ? null : var.docdb_password
+  manage_master_user_password = var.manage_master_user_password
+  db_subnet_group_name        = aws_docdb_subnet_group.docdb.name
+  vpc_security_group_ids      = var.security_group_ids
+  skip_final_snapshot         = true
 }
 
 resource "aws_docdb_cluster_instance" "cluster_instances" {
@@ -67,13 +70,13 @@ resource "aws_elasticache_subnet_group" "redis" {
 }
 
 resource "aws_elasticache_replication_group" "redis" {
-  replication_group_id   = "app-redis-cluster"
-  description            = "Redis cluster for caching"
-  node_type              = "cache.t3.micro"
-  num_cache_clusters     = 1
-  port                   = 6379
-  subnet_group_name      = aws_elasticache_subnet_group.redis.name
-  security_group_ids     = var.security_group_ids
+  replication_group_id       = "app-redis-cluster"
+  description                = "Redis cluster for caching"
+  node_type                  = "cache.t3.micro"
+  num_cache_clusters         = 1
+  port                       = 6379
+  subnet_group_name          = aws_elasticache_subnet_group.redis.name
+  security_group_ids         = var.security_group_ids
   at_rest_encryption_enabled = true
   transit_encryption_enabled = true
 }

@@ -61,6 +61,285 @@ These variables are defined by Terraform and must be available during plan/apply
 
 Do not commit database passwords to `terraform.tfvars`.
 
+## Passwordless Or Temporary Database Access From Kubernetes
+
+If Terraform creates the databases, AWS does not automatically give your application a temporary password. There are two real-world patterns:
+
+1. **Bootstrap password managed by AWS Secrets Manager**
+   - Terraform tells AWS to generate and store the master/admin password.
+   - Humans and CI/CD do not know or store the master password.
+   - AWS Secrets Manager can rotate the master password on a schedule.
+
+2. **Runtime application access through IAM/OIDC**
+   - EKS pods use IAM Roles for Service Accounts, also called IRSA.
+   - The pod receives short-lived AWS credentials from STS.
+   - The app uses those credentials to authenticate to the database or retrieve a rotated secret.
+
+Recommended target design:
+
+```text
+EKS OIDC provider
+  -> Kubernetes service account
+  -> IAM role for service account
+  -> Pod receives temporary AWS credentials
+  -> App connects to DB using IAM auth or reads rotated secret from Secrets Manager
+```
+
+### PostgreSQL On RDS
+
+For RDS PostgreSQL, use IAM database authentication for application users.
+
+How it works:
+
+```text
+Pod assumes IAM role through IRSA
+  -> app generates RDS IAM auth token
+  -> token is used as the database password
+  -> token is valid for 15 minutes
+```
+
+Terraform changes needed:
+
+```hcl
+resource "aws_db_instance" "postgres" {
+  # existing settings
+  engine                              = "postgres"
+  iam_database_authentication_enabled = true
+
+  # Better than passing var.postgres_password:
+  manage_master_user_password = true
+}
+```
+
+Then create a non-admin database user and grant IAM login inside PostgreSQL:
+
+```sql
+CREATE USER kyc_app;
+GRANT rds_iam TO kyc_app;
+GRANT CONNECT ON DATABASE appdb TO kyc_app;
+```
+
+The pod IAM role needs `rds-db:connect`.
+
+Example IAM policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "rds-db:connect",
+      "Resource": "arn:aws:rds-db:us-east-1:111122223333:dbuser:db-ABCDEFGHIJKLMNOP/kyc_app"
+    }
+  ]
+}
+```
+
+The `db-ABCDEFGHIJKLMNOP` value is the RDS DB resource ID, not the normal DB identifier. Terraform can output it from `aws_db_instance.postgres.resource_id`.
+
+Application behavior:
+
+- Generate a fresh auth token before opening new DB connections.
+- Keep connection pool lifetime below token lifetime or reconnect cleanly.
+- Use TLS/SSL for the database connection.
+- Do not store `PG_PASSWORD` in Kubernetes secrets for IAM-authenticated users.
+
+### DocumentDB
+
+For Amazon DocumentDB, there are two options.
+
+Preferred when your DocumentDB version and driver support it:
+
+```text
+DocumentDB IAM authentication
+```
+
+Amazon DocumentDB supports IAM database authentication for non-primary users on supported DocumentDB 5.0 instance-based clusters. The primary/admin user still uses password authentication.
+
+Target flow:
+
+```text
+Pod assumes IAM role through IRSA
+  -> MongoDB driver uses AWS IAM authentication
+  -> app connects without storing a MongoDB password
+```
+
+Alternative and widely used option:
+
+```text
+AWS Secrets Manager rotation
+```
+
+Use this when your app or driver cannot use DocumentDB IAM authentication yet.
+
+Flow:
+
+```text
+AWS Secrets Manager stores DocumentDB user/password
+  -> Secrets Manager rotates password on schedule
+  -> pod uses IRSA to read secret
+  -> External Secrets Operator can sync it into Kubernetes if needed
+```
+
+Terraform target for AWS-managed admin password:
+
+```hcl
+resource "aws_docdb_cluster" "docdb" {
+  # existing settings
+  engine = "docdb"
+
+  # Better than passing var.docdb_password when supported by provider/version:
+  manage_master_user_password = true
+}
+```
+
+If using Secrets Manager for application credentials, the pod IAM role needs:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DescribeSecret"
+      ],
+      "Resource": "arn:aws:secretsmanager:us-east-1:111122223333:secret:kyc/dev/docdb/app-*"
+    }
+  ]
+}
+```
+
+### EKS IRSA Setup
+
+Each workload should have its own Kubernetes service account and IAM role.
+
+Example service account:
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kyc-app-sa
+  namespace: kyc
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::111122223333:role/kyc-dev-app-irsa-role
+```
+
+Example IAM trust policy for the service account:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::111122223333:oidc-provider/oidc.eks.us-east-1.amazonaws.com/id/EXAMPLED539D4633E53DE1B71EXAMPLE"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "oidc.eks.us-east-1.amazonaws.com/id/EXAMPLED539D4633E53DE1B71EXAMPLE:aud": "sts.amazonaws.com",
+          "oidc.eks.us-east-1.amazonaws.com/id/EXAMPLED539D4633E53DE1B71EXAMPLE:sub": "system:serviceaccount:kyc:kyc-app-sa"
+        }
+      }
+    }
+  ]
+}
+```
+
+### What Changes In CI/CD Secrets
+
+If you fully move to AWS-managed master passwords and IAM runtime auth:
+
+| Current secret | Future status |
+| --- | --- |
+| `TF_VAR_POSTGRES_PASSWORD` | Not required for RDS if using `manage_master_user_password = true` |
+| `TF_VAR_DOCDB_PASSWORD` | Not required for DocumentDB if using `manage_master_user_password = true` |
+| `AWS_ROLE_TO_ASSUME` | Still required for GitHub Actions |
+| Jenkins AWS credentials | Still required for Jenkins |
+
+CI/CD still needs AWS permissions to create:
+
+- RDS/DocumentDB resources.
+- Secrets Manager managed secrets.
+- KMS keys if customer-managed encryption is used.
+- IAM roles and policies for IRSA.
+- EKS service account annotations if managed by Terraform or Helm.
+
+### Recommended Migration Plan
+
+1. Enable AWS-managed master password for RDS PostgreSQL.
+2. Enable RDS IAM database authentication.
+3. Add Terraform output for RDS `resource_id`.
+4. Create an IRSA role for each Kubernetes service account.
+5. Grant `rds-db:connect` to the app DB user.
+6. Update the application to generate RDS IAM auth tokens instead of reading `PG_PASSWORD`.
+7. For DocumentDB, choose IAM authentication if your cluster and MongoDB driver support it.
+8. Otherwise store DocumentDB application credentials in Secrets Manager and rotate them.
+9. Use External Secrets Operator only if the app cannot read Secrets Manager directly.
+10. Remove `TF_VAR_POSTGRES_PASSWORD` and `TF_VAR_DOCDB_PASSWORD` from GitHub/Jenkins only after Terraform no longer requires those variables.
+
+### Code Implementation In This Repository
+
+The repository now has an opt-in implementation path.
+
+Terraform:
+
+- `kyc-terraform/modules/database/main.tf` supports `manage_master_user_password`.
+- `kyc-terraform/modules/database/main.tf` supports `enable_postgres_iam_auth`.
+- `kyc-terraform/environments/prod/irsa.tf` creates the EKS OIDC provider, an app IRSA role, and policies for:
+  - `rds-db:connect`
+  - `secretsmanager:GetSecretValue`
+  - `secretsmanager:DescribeSecret`
+- `kyc-terraform/environments/prod/outputs.tf` exposes:
+  - `rds_resource_id`
+  - `rds_master_user_secret_arn`
+  - `docdb_master_user_secret_arn`
+  - `kyc_app_irsa_role_arn`
+
+Helm/Kubernetes:
+
+- `kyc-k8s/templates/serviceaccount.yaml` creates `kyc-app-sa`.
+- `kyc-k8s/templates/*deployment.yaml` sets `serviceAccountName`.
+- `PG_PASSWORD` is omitted when `database.postgres.iamAuthEnabled` is `true`.
+- `MONGO_URI` from Kubernetes secret is omitted when `database.docdb.mongoUriSecretArn` is set.
+
+Application:
+
+- `kyc-ekyc-service/index.js` and `kyc-vkyc-service/index.js` support `PG_IAM_AUTH_ENABLED=true`.
+- When enabled, the services use `@aws-sdk/rds-signer` to generate short-lived PostgreSQL auth tokens.
+- If `MONGO_URI_SECRET_ARN` is set, the services use `@aws-sdk/client-secrets-manager` to read the MongoDB URI using the pod IRSA role.
+
+To enable for an environment:
+
+```hcl
+manage_master_user_password = true
+enable_postgres_iam_auth    = true
+k8s_namespace               = "kyc"
+k8s_service_account_name    = "kyc-app-sa"
+app_db_username             = "kyc_app"
+docdb_app_secret_arn        = "arn:aws:secretsmanager:us-east-1:111122223333:secret:kyc/dev/docdb/app-abc123"
+```
+
+Then update Helm values:
+
+```yaml
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::111122223333:role/dev-kyc-app-irsa-role
+
+database:
+  postgres:
+    iamAuthEnabled: true
+  docdb:
+    mongoUriSecretArn: arn:aws:secretsmanager:us-east-1:111122223333:secret:kyc/dev/docdb/app-abc123
+```
+
+
 ## Environment Naming Standard
 
 Use environment-specific secrets so dev, QA, and prod can have different AWS roles and database passwords.
@@ -466,4 +745,3 @@ For GitHub:
 - Current GitHub secret names are generic inside the selected GitHub environment: `AWS_ROLE_TO_ASSUME`, `TF_VAR_POSTGRES_PASSWORD`, and `TF_VAR_DOCDB_PASSWORD`.
 - `AWS_REGION` is a GitHub workflow input for deploy and a Jenkins parameter for deploy/destroy.
 - The destroy GitHub workflow currently has `AWS_REGION: us-east-1`; make it a workflow input if destroy must support multiple regions.
-

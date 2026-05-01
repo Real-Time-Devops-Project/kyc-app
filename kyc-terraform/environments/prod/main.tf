@@ -25,14 +25,16 @@ module "eks" {
 
 # --- Database ---
 module "database" {
-  source             = "../../modules/database"
-  vpc_id             = module.networking.vpc_ids["app"]
-  subnet_ids         = module.networking.app_subnet_ids
-  security_group_ids = [module.security.database_sg_id]
-  db_name            = var.db_name
-  db_username        = var.db_username
-  postgres_password  = var.postgres_password
-  docdb_password     = var.docdb_password
+  source                      = "../../modules/database"
+  vpc_id                      = module.networking.vpc_ids["app"]
+  subnet_ids                  = module.networking.app_subnet_ids
+  security_group_ids          = [module.security.database_sg_id]
+  db_name                     = var.db_name
+  db_username                 = var.db_username
+  postgres_password           = var.postgres_password
+  docdb_password              = var.docdb_password
+  manage_master_user_password = var.manage_master_user_password
+  enable_postgres_iam_auth    = var.enable_postgres_iam_auth
 }
 
 # --- Management ---

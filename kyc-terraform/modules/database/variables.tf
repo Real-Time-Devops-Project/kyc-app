@@ -29,10 +29,26 @@ variable "postgres_password" {
   description = "Master password for RDS PostgreSQL"
   type        = string
   sensitive   = true
+  default     = null
+  nullable    = true
 }
 
 variable "docdb_password" {
   description = "Master password for DocumentDB (MongoDB)"
   type        = string
   sensitive   = true
+  default     = null
+  nullable    = true
+}
+
+variable "manage_master_user_password" {
+  description = "Let AWS manage database master passwords in Secrets Manager"
+  type        = bool
+  default     = false
+}
+
+variable "enable_postgres_iam_auth" {
+  description = "Enable IAM database authentication for RDS PostgreSQL"
+  type        = bool
+  default     = false
 }

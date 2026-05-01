@@ -11,6 +11,20 @@ service:
   type: ClusterIP
   port: 80
 
+serviceAccount:
+  create: true
+  name: kyc-app-sa
+  annotations: {}
+
+aws:
+  region: us-east-1
+
+database:
+  postgres:
+    iamAuthEnabled: false
+  docdb:
+    mongoUriSecretArn: ""
+
 ingress:
   enabled: false
 

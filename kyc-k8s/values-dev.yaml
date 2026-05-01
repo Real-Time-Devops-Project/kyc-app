@@ -1,6 +1,14 @@
 # DEV Environment Values
 environment: dev
 replicaCount: 1
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: ""
+database:
+  postgres:
+    iamAuthEnabled: false
+  docdb:
+    mongoUriSecretArn: ""
 resources:
   limits:
     cpu: 250m

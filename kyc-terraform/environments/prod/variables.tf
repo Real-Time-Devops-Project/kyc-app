@@ -48,10 +48,50 @@ variable "postgres_password" {
   description = "Master password for RDS PostgreSQL"
   type        = string
   sensitive   = true
+  default     = null
+  nullable    = true
 }
 
 variable "docdb_password" {
   description = "Master password for DocumentDB (MongoDB)"
   type        = string
   sensitive   = true
+  default     = null
+  nullable    = true
+}
+
+variable "manage_master_user_password" {
+  description = "Let AWS manage database master passwords in Secrets Manager"
+  type        = bool
+  default     = false
+}
+
+variable "enable_postgres_iam_auth" {
+  description = "Enable IAM database authentication for RDS PostgreSQL"
+  type        = bool
+  default     = false
+}
+
+variable "k8s_namespace" {
+  description = "Kubernetes namespace used by KYC workloads"
+  type        = string
+  default     = "kyc"
+}
+
+variable "k8s_service_account_name" {
+  description = "Kubernetes service account used by KYC workloads"
+  type        = string
+  default     = "kyc-app-sa"
+}
+
+variable "app_db_username" {
+  description = "PostgreSQL application user used with IAM database authentication"
+  type        = string
+  default     = "kyc_app"
+}
+
+variable "docdb_app_secret_arn" {
+  description = "Secrets Manager ARN containing application MongoDB URI for pods to read through IRSA"
+  type        = string
+  default     = "*"
 }

@@ -16,6 +16,7 @@ spec:
       labels:
         app: {{ .Release.Name }}
     spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
       containers:
       - name: {{ .Release.Name }}
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -48,23 +49,34 @@ spec:
           value: "3001"
         - name: PG_HOST
           value: "{{ .Values.environment }}-postgres"
+        - name: PG_IAM_AUTH_ENABLED
+          value: "{{ .Values.database.postgres.iamAuthEnabled }}"
+        - name: AWS_REGION
+          value: "{{ .Values.aws.region }}"
         - name: PG_USER
           valueFrom:
             secretKeyRef:
               name: db-secrets
               key: pg-user
+        {{- if not .Values.database.postgres.iamAuthEnabled }}
         - name: PG_PASSWORD
           valueFrom:
             secretKeyRef:
               name: db-secrets
               key: pg-password
+        {{- end }}
         - name: PG_DATABASE
           value: "kyc_{{ .Values.environment }}"
+        {{- if .Values.database.docdb.mongoUriSecretArn }}
+        - name: MONGO_URI_SECRET_ARN
+          value: "{{ .Values.database.docdb.mongoUriSecretArn }}"
+        {{- else }}
         - name: MONGO_URI
           valueFrom:
             secretKeyRef:
               name: db-secrets
               key: mongo-uri
+        {{- end }}
         - name: REDIS_URL
           value: "redis://{{ .Values.environment }}-redis:6379"
 ---
