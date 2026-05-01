@@ -431,23 +431,35 @@ The current Jenkinsfiles still reference the generic IDs. If you want one Jenkin
 
 Use these steps for dev. QA and prod follow the same pattern with the names from the tables above.
 
-### 1. Create Terraform Remote State For Dev
+### 1. Verify Terraform Remote State For Dev
 
-Create an S3 bucket and DynamoDB table for Terraform state locking.
+You already provided the backend resources:
 
-Example AWS CLI:
+```text
+S3 bucket: my-terraform-trinath
+DynamoDB lock table: terraform-locks
+```
+
+Verify they exist before running Terraform:
 
 ```bash
-aws s3api create-bucket \
-  --bucket kyc-app-terraform-state-dev \
-  --region us-east-1
+aws s3api head-bucket \
+  --bucket my-terraform-trinath
 
+aws dynamodb describe-table \
+  --table-name terraform-locks \
+  --region us-east-1
+```
+
+If the bucket is new, enable versioning and encryption:
+
+```bash
 aws s3api put-bucket-versioning \
-  --bucket kyc-app-terraform-state-dev \
+  --bucket my-terraform-trinath \
   --versioning-configuration Status=Enabled
 
 aws s3api put-bucket-encryption \
-  --bucket kyc-app-terraform-state-dev \
+  --bucket my-terraform-trinath \
   --server-side-encryption-configuration '{
     "Rules": [
       {
@@ -457,24 +469,44 @@ aws s3api put-bucket-encryption \
       }
     ]
   }'
+```
 
+If the lock table does not exist, create it:
+
+```bash
 aws dynamodb create-table \
-  --table-name terraform-state-lock-dev \
+  --table-name terraform-locks \
   --attribute-definitions AttributeName=LockID,AttributeType=S \
   --key-schema AttributeName=LockID,KeyType=HASH \
   --billing-mode PAY_PER_REQUEST \
   --region us-east-1
 ```
 
-Recommended backend values for dev:
+Your current backend values are:
+
+```text
+S3 bucket: my-terraform-trinath
+DynamoDB lock table: terraform-locks
+```
+
+Recommended backend values for dev if you reuse the same bucket and lock table:
 
 ```hcl
 terraform {
   backend "s3" {
-    bucket         = "kyc-app-terraform-state-dev"
+    # Same bucket can be reused for all environments.
+    bucket         = "my-terraform-trinath"
+
+    # Change this key per environment so states do not overwrite each other.
     key            = "dev/terraform.tfstate"
+
+    # Use the region where the bucket and lock table exist.
     region         = "us-east-1"
-    dynamodb_table = "terraform-state-lock-dev"
+
+    # Same lock table can be reused for all environments.
+    dynamodb_table = "terraform-locks"
+
+    # Keep enabled.
     encrypt        = true
   }
 }
@@ -482,11 +514,11 @@ terraform {
 
 QA and prod should use separate backend keys or separate buckets:
 
-| Environment | Bucket example | State key | Lock table example |
+| Environment | Bucket | State key | Lock table |
 | --- | --- | --- | --- |
-| dev | `kyc-app-terraform-state-dev` | `dev/terraform.tfstate` | `terraform-state-lock-dev` |
-| qa | `kyc-app-terraform-state-qa` | `qa/terraform.tfstate` | `terraform-state-lock-qa` |
-| prod | `kyc-app-terraform-state-prod` | `prod/terraform.tfstate` | `terraform-state-lock-prod` |
+| dev | `my-terraform-trinath` | `dev/terraform.tfstate` | `terraform-locks` |
+| qa | `my-terraform-trinath` | `qa/terraform.tfstate` | `terraform-locks` |
+| prod | `my-terraform-trinath` | `prod/terraform.tfstate` | `terraform-locks` |
 
 ## GitHub Actions Credential Setup
 
