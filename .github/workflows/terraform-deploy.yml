@@ -1,6 +1,7 @@
 name: Terraform Deploy
 
-# Run automatically when Terraform changes, and manually when an operator wants to trigger deployment.
+# PRs run CI and publish a readable Terraform plan for review.
+# Merges to main run CD and wait on the protected GitHub environment approval before apply.
 on:
   push:
     branches:
@@ -14,6 +15,11 @@ on:
       - '.github/workflows/terraform-deploy.yml'
   workflow_dispatch:
     inputs:
+      aws_region:
+        description: 'AWS region for Terraform and observed-state scans'
+        required: true
+        default: 'us-east-1'
+        type: string
       run_observed_state_scans:
         description: 'Run Prowler, CloudQuery, Steampipe, and Custodian after deploy'
         required: true
@@ -27,19 +33,21 @@ permissions:
   # id-token is required for GitHub OIDC authentication into AWS.
   contents: read
   id-token: write
+  issues: write
+  pull-requests: write
 
 env:
   # Secrets become Terraform variables because they use the TF_VAR_ prefix.
-  AWS_REGION: us-east-1
+  AWS_REGION: ${{ inputs.aws_region || 'us-east-1' }}
   TF_IN_AUTOMATION: true
   TF_VAR_postgres_password: ${{ secrets.TF_VAR_POSTGRES_PASSWORD }}
   TF_VAR_docdb_password: ${{ secrets.TF_VAR_DOCDB_PASSWORD }}
 
 jobs:
-  terraform:
-    name: Define, Detect, Deploy
+  terraform-ci:
+    name: PR Plan For Review
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    environment: prod
     defaults:
       run:
         # Most Terraform commands run from the prod root module.
@@ -107,6 +115,138 @@ jobs:
         run: |
           terraform plan -input=false -out=tfplan
           terraform show -no-color tfplan > tfplan.txt
+          terraform show -json tfplan > tfplan.json
+
+      - name: Install tf-summarize
+        # tf-summarize converts the JSON Terraform plan into a reviewer-friendly change summary.
+        run: |
+          curl -sL https://github.com/dineshba/tf-summarize/releases/download/v0.3.10/tf-summarize_linux_amd64.tar.gz -o /tmp/tf-summarize.tar.gz
+          tar -xzf /tmp/tf-summarize.tar.gz -C /tmp
+          sudo mv /tmp/tf-summarize /usr/local/bin/tf-summarize
+
+      - name: Create readable plan summary
+        # This summary is what managers/reviewers can read before approving the PR.
+        run: |
+          tf-summarize -md tfplan.json > tfplan-summary.md
+          cat tfplan-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment plan summary on PR
+        # Put the readable plan directly on the PR so approval can happen in GitHub review.
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('kyc-terraform/environments/prod/tfplan-summary.md', 'utf8');
+            const marker = '<!-- terraform-plan-summary -->';
+            const body = `${marker}\n## Terraform Plan Summary\n\n${summary}`;
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const existing = comments.data.find(comment => comment.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - name: Upload plans and reports
+        # Preserve plan, drift, and scan evidence for review/audit.
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-pr-plan-reports
+          path: |
+            kyc-terraform/environments/prod/tfplan.txt
+            kyc-terraform/environments/prod/tfplan.json
+            kyc-terraform/environments/prod/tfplan-summary.md
+            kyc-terraform/environments/prod/drift-report.txt
+            kyc-terraform/security-reports/**
+          if-no-files-found: ignore
+
+  terraform-cd-plan:
+    name: Main Plan For Approval
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # Most Terraform commands run from the prod root module.
+        working-directory: kyc-terraform/environments/prod
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        # Assumes an AWS IAM role trusted by this repository through GitHub OIDC.
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.7
+
+      - name: Terraform fmt
+        # Intended state check: verify all Terraform files are consistently formatted.
+        working-directory: kyc-terraform
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        # Connect Terraform to providers and the configured remote state backend.
+        run: terraform init -input=false
+
+      - name: Terraform validate
+        # Validate syntax and provider/module wiring before planning.
+        run: terraform validate
+
+      - name: Install Checkov
+        # Checkov scans Terraform for insecure cloud configuration before deployment.
+        run: pipx install checkov
+
+      - name: Scan intended state with Checkov
+        # Intended state security gate: fail the workflow on high-risk IaC findings.
+        working-directory: kyc-terraform
+        run: |
+          mkdir -p security-reports/checkov
+          checkov -d . --framework terraform --output cli --output json --output-file-path security-reports/checkov
+
+      - name: Detect drift
+        id: drift
+        # Actual state check: detect AWS changes that happened outside Terraform.
+        run: |
+          set +e
+          terraform plan -refresh-only -detailed-exitcode -out=tfdrift
+          exit_code=$?
+          set -e
+          if [ "$exit_code" -eq 0 ]; then
+            echo "status=clean" >> "$GITHUB_OUTPUT"
+          elif [ "$exit_code" -eq 2 ]; then
+            echo "status=drifted" >> "$GITHUB_OUTPUT"
+            terraform show -no-color tfdrift > drift-report.txt
+          else
+            exit "$exit_code"
+          fi
+
+      - name: Terraform plan
+        # Create the main-branch plan that managers approve before the apply job starts.
+        run: |
+          terraform plan -input=false -out=tfplan
+          terraform show -no-color tfplan > tfplan.txt
+          terraform show -json tfplan > tfplan.json
+
+      - name: Install tf-summarize
+        # tf-summarize converts the JSON Terraform plan into a readable deployment summary.
+        run: |
+          curl -sL https://github.com/dineshba/tf-summarize/releases/download/v0.3.10/tf-summarize_linux_amd64.tar.gz -o /tmp/tf-summarize.tar.gz
+          tar -xzf /tmp/tf-summarize.tar.gz -C /tmp
+          sudo mv /tmp/tf-summarize /usr/local/bin/tf-summarize
+
+      - name: Create readable plan summary
+        # Keep a human-readable summary in the workflow run before apply.
+        run: |
+          tf-summarize -md tfplan.json > tfplan-summary.md
+          cat tfplan-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload plans and reports
         # Preserve plan, drift, and scan evidence for review/audit.
@@ -114,19 +254,64 @@ jobs:
         with:
           name: terraform-deploy-reports
           path: |
+            kyc-terraform/environments/prod/tfplan
             kyc-terraform/environments/prod/tfplan.txt
+            kyc-terraform/environments/prod/tfplan.json
+            kyc-terraform/environments/prod/tfplan-summary.md
             kyc-terraform/environments/prod/drift-report.txt
             kyc-terraform/security-reports/**
           if-no-files-found: ignore
 
+  terraform-cd-apply:
+    name: Approved Apply And Observe
+    needs: terraform-cd-plan
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # Configure required reviewers on the prod environment so approval happens after the plan is available.
+    environment: prod
+    defaults:
+      run:
+        working-directory: kyc-terraform/environments/prod
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        # Assumes an AWS IAM role trusted by this repository through GitHub OIDC.
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.7
+
+      - name: Terraform init
+        # Reconnect to providers and remote state before applying the reviewed plan.
+        run: terraform init -input=false
+
+      - name: Download reviewed plan
+        # This is the plan created before manager approval.
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-deploy-reports
+          path: kyc-terraform/deploy-artifacts
+
+      - name: Restore reviewed plan
+        # Place the binary plan back in the Terraform root module for apply.
+        working-directory: kyc-terraform
+        run: cp deploy-artifacts/environments/prod/tfplan environments/prod/tfplan
+
       - name: Terraform apply
-        # Update actual AWS state only for non-PR runs on main.
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        # Update actual AWS state only after branch protection and prod environment approval.
         run: terraform apply -input=false -auto-approve tfplan
 
       - name: Install observed-state tools
         # Runtime/cloud-state tools are installed only when observed-state scans will run.
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.run_observed_state_scans == 'true')
+        if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.run_observed_state_scans == 'true')
         working-directory: kyc-terraform
         run: |
           pipx install prowler
@@ -138,7 +323,7 @@ jobs:
 
       - name: Observe actual cloud state
         # Observed state loop: collect inventory, compliance, and audit-only remediation findings.
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.run_observed_state_scans == 'true')
+        if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.run_observed_state_scans == 'true')
         working-directory: kyc-terraform
         continue-on-error: true
         run: |
