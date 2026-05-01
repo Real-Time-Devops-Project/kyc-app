@@ -76,7 +76,8 @@ jobs:
 
       - name: Terraform init
         # Connect Terraform to providers and the configured remote state backend.
-        run: terraform init -input=false
+        # tf-init.sh auto-detects branch and sets the correct S3 backend key.
+        run: bash ../../scripts/tf-init.sh
 
       - name: Terraform validate
         # Validate syntax and provider/module wiring before planning.
@@ -194,7 +195,8 @@ jobs:
 
       - name: Terraform init
         # Connect Terraform to providers and the configured remote state backend.
-        run: terraform init -input=false
+        # tf-init.sh auto-detects branch and sets the correct S3 backend key.
+        run: bash ../../scripts/tf-init.sh
 
       - name: Terraform validate
         # Validate syntax and provider/module wiring before planning.
@@ -291,7 +293,8 @@ jobs:
 
       - name: Terraform init
         # Reconnect to providers and remote state before applying the reviewed plan.
-        run: terraform init -input=false
+        # tf-init.sh auto-detects branch and sets the correct S3 backend key.
+        run: bash ../../scripts/tf-init.sh
 
       - name: Download reviewed plan
         # This is the plan created before manager approval.

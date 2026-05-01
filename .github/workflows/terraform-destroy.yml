@@ -51,7 +51,8 @@ jobs:
 
       - name: Terraform init
         # Connect to providers and remote state before planning destroy.
-        run: terraform init -input=false
+        # tf-init.sh auto-detects branch and sets the correct S3 backend key.
+        run: bash ../../scripts/tf-init.sh
 
       - name: Terraform destroy plan
         # Generate and save the destroy plan so reviewers can inspect what will be removed.

@@ -1,16 +1,15 @@
 terraform {
   backend "s3" {
     # Terraform state bucket.
-    # Keep this as your real S3 bucket name unless you create a different bucket per environment.
     bucket         = "my-terraform-trinath"
 
-    # State file path inside the bucket.
-    # Change only the environment folder if you copy this backend for dev or qa.
-    # Examples:
-    #   dev/terraform.tfstate
-    #   qa/terraform.tfstate
-    #   prod/terraform.tfstate
-    key            = "prod/terraform.tfstate"
+    # State file key is NOT set here on purpose.
+    # It is injected automatically by scripts/tf-init.sh based on the current
+    # git branch:
+    #   main  → prod/terraform.tfstate
+    #   qa    → qa/terraform.tfstate
+    #   dev   → dev/terraform.tfstate
+    # Run: bash ../../scripts/tf-init.sh   (from this directory)
 
     # AWS region where the S3 state bucket and DynamoDB lock table exist.
     region         = "us-east-1"
