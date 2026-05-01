@@ -35,3 +35,29 @@ This repository contains the Terraform configuration files for provisioning the 
 
 - `modules/`: Reusable Terraform modules (vpc, eks, etc.).
 - `environments/`: Environment-specific configurations (dev, prod).
+
+## CI/CD State Reconciliation
+
+The Jenkins and GitHub Actions pipelines now follow the three-state cloud loop:
+
+- **Intended state:** Terraform format, init, validate, and Checkov IaC scans.
+- **Actual state:** Terraform refresh-only drift detection, plan, apply, or destroy.
+- **Observed state:** Optional Prowler, CloudQuery, Steampipe, and Cloud Custodian audit outputs.
+
+### Jenkins credentials
+
+Create these Jenkins credentials before running `kyc-terraform/Jenkinsfile` or `kyc-terraform/Jenkinsfile.destroy`:
+
+- `aws-credentials-id`: AWS access key credentials for the AWS Credentials Jenkins plugin.
+- `tf-var-postgres-password`: Secret text value for `TF_VAR_postgres_password`.
+- `tf-var-docdb-password`: Secret text value for `TF_VAR_docdb_password`.
+
+### GitHub Actions secrets
+
+Create these repository or environment secrets:
+
+- `AWS_ROLE_TO_ASSUME`: IAM role ARN trusted by GitHub OIDC.
+- `TF_VAR_POSTGRES_PASSWORD`: PostgreSQL master password.
+- `TF_VAR_DOCDB_PASSWORD`: DocumentDB master password.
+
+Use the `prod` GitHub environment for deployment approval and `prod-destroy` for destroy approval.

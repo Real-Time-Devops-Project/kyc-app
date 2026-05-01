@@ -1,9 +1,27 @@
 pipeline {
     agent any
 
+    // Keep Jenkins from doing an implicit checkout so the pipeline controls workspace setup.
+    options {
+        skipDefaultCheckout(true)
+        timestamps()
+    }
+
+    // Runtime inputs let the same pipeline support another AWS region and optional observed-state checks.
+    parameters {
+        string(name: 'AWS_REGION', defaultValue: 'us-east-1', description: 'AWS region for Terraform and observed-state security scans.')
+        booleanParam(name: 'RUN_OBSERVED_STATE_SCANS', defaultValue: true, description: 'Run Prowler, CloudQuery, Steampipe, and Cloud Custodian after Terraform apply.')
+        booleanParam(name: 'RUN_CUSTODIAN_REMEDIATION', defaultValue: false, description: 'Run Cloud Custodian remediation policies. Leave disabled for audit-only runs.')
+    }
+
+    // TF_VAR_region automatically feeds the Terraform variable named "region".
     environment {
-        AWS_CREDENTIALS = credentials('aws-credentials-id')
-        TF_VAR_region = 'us-east-1'
+        AWS_DEFAULT_REGION = "${params.AWS_REGION}"
+        TF_VAR_region = "${params.AWS_REGION}"
+        TF_DIR = 'kyc-terraform/environments/prod'
+        SECURITY_DIR = 'kyc-terraform/security'
+        REPORT_DIR = 'kyc-terraform/security-reports'
+        TF_IN_AUTOMATION = 'true'
     }
 
     stages {
@@ -13,67 +31,210 @@ pipeline {
             }
         }
 
-        stage('Security Scan') {
+        stage('Define Desired State') {
             steps {
-                dir('environments/prod') {
-                    sh 'tfsec .'
+                // Intended state: make sure Terraform code is formatted, initialized, and valid.
+                dir('kyc-terraform') {
+                    sh 'terraform fmt -check -recursive'
+                }
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials-id']]) {
+                    dir("${TF_DIR}") {
+                        sh 'terraform init -input=false'
+                        sh 'terraform validate'
+                    }
                 }
             }
         }
 
-        stage('Terraform Init') {
+        stage('Scan Intended State') {
             steps {
-                dir('environments/prod') {
-                    sh 'terraform init'
+                // Shift-left IaC scan: block unsafe Terraform before it reaches AWS.
+                dir('kyc-terraform') {
+                    sh '''
+                        set -e
+                        mkdir -p security-reports/checkov security-reports/tfsec
+                        if command -v checkov >/dev/null 2>&1; then
+                          checkov -d . --framework terraform --output cli --output json --output-file-path security-reports/checkov
+                        else
+                          echo "checkov is not installed on this Jenkins agent"
+                          exit 1
+                        fi
+
+                        if command -v tfsec >/dev/null 2>&1; then
+                          tfsec . --format json --out security-reports/tfsec/tfsec.json || true
+                        else
+                          echo "tfsec is not installed; Checkov remains the required IaC gate"
+                        fi
+                    '''
                 }
             }
         }
 
-        stage('Terraform Plan') {
+        stage('Detect Drift') {
             steps {
-                dir('environments/prod') {
-                    sh 'terraform plan -out=tfplan'
+                // Actual state check: refresh state from AWS and report if cloud changed outside Terraform.
+                withCredentials([
+                    [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials-id'],
+                    string(credentialsId: 'tf-var-postgres-password', variable: 'TF_VAR_postgres_password'),
+                    string(credentialsId: 'tf-var-docdb-password', variable: 'TF_VAR_docdb_password')
+                ]) {
+                    dir("${TF_DIR}") {
+                        sh '''
+                            set +e
+                            terraform plan -refresh-only -detailed-exitcode -out=tfdrift
+                            exit_code=$?
+                            set -e
+
+                            if [ "$exit_code" -eq 0 ]; then
+                              echo "No drift detected between Terraform state and AWS."
+                            elif [ "$exit_code" -eq 2 ]; then
+                              echo "Drift detected. Review the refresh-only plan before applying changes."
+                              terraform show -no-color tfdrift > drift-report.txt
+                              exit 0
+                            else
+                              echo "Terraform drift detection failed."
+                              exit "$exit_code"
+                            fi
+                        '''
+                    }
                 }
             }
         }
 
-        stage('Terraform Apply') {
+        stage('Plan Deployment') {
+            steps {
+                // Build the reviewed deployment plan that will be applied after approval.
+                withCredentials([
+                    [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials-id'],
+                    string(credentialsId: 'tf-var-postgres-password', variable: 'TF_VAR_postgres_password'),
+                    string(credentialsId: 'tf-var-docdb-password', variable: 'TF_VAR_docdb_password')
+                ]) {
+                    dir("${TF_DIR}") {
+                        sh 'terraform plan -input=false -out=tfplan'
+                        sh 'terraform show -no-color tfplan > tfplan.txt'
+                    }
+                }
+            }
+        }
+
+        stage('Approve Apply') {
             when {
                 branch 'main'
             }
             steps {
-                dir('environments/prod') {
-                    input message: 'Approve Apply?', ok: 'Yes'
-                    sh 'terraform apply -auto-approve tfplan'
+                // Manual production gate: review the plan artifact before changing infrastructure.
+                input message: 'Apply approved Terraform plan to production?', ok: 'Apply'
+            }
+        }
+
+        stage('Deploy Actual State') {
+            when {
+                branch 'main'
+            }
+            steps {
+                // Actual state update: apply only the previously generated Terraform plan.
+                withCredentials([
+                    [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials-id'],
+                    string(credentialsId: 'tf-var-postgres-password', variable: 'TF_VAR_postgres_password'),
+                    string(credentialsId: 'tf-var-docdb-password', variable: 'TF_VAR_docdb_password')
+                ]) {
+                    dir("${TF_DIR}") {
+                        sh 'terraform apply -input=false -auto-approve tfplan'
+                    }
                 }
             }
         }
 
         stage('Update Ansible Inventory') {
+            when {
+                branch 'main'
+            }
             steps {
+                // Bridge Terraform outputs into Ansible inventory for post-provision configuration.
                 script {
-                    // Fetch outputs from terraform state
-                    dir('environments/prod') {
-                        env.JENKINS_IP = sh(script: 'terraform output -raw jenkins_ip', returnStdout: true).trim()
-                        env.BASTION_IP = sh(script: 'terraform output -raw bastion_ip', returnStdout: true).trim()
+                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials-id']]) {
+                        dir("${TF_DIR}") {
+                            env.JENKINS_IP = sh(script: 'terraform output -raw jenkins_ip', returnStdout: true).trim()
+                            env.BASTION_IP = sh(script: 'terraform output -raw bastion_ip', returnStdout: true).trim()
+                        }
                     }
-                    
-                    // Generate inventory file
-                    dir('ansible') {
-                         sh "echo '[jenkins_servers]' > inventory"
-                         sh "echo '${env.JENKINS_IP} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_common_args=\"-o StrictHostKeyChecking=no\"' >> inventory"
-                         sh "echo '' >> inventory"
-                         sh "echo '[bastion_servers]' >> inventory"
-                         sh "echo '${env.BASTION_IP} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_common_args=\"-o StrictHostKeyChecking=no\"' >> inventory"
+
+                    dir('kyc-terraform/ansible') {
+                        sh "printf '[jenkins_servers]\\n%s ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_common_args=\"-o StrictHostKeyChecking=no\"\\n\\n[bastion_servers]\\n%s ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_common_args=\"-o StrictHostKeyChecking=no\"\\n' '${env.JENKINS_IP}' '${env.BASTION_IP}' > inventory"
+                    }
+                }
+            }
+        }
+
+        stage('Observed State Security Loop') {
+            when {
+                allOf {
+                    branch 'main'
+                    expression { return params.RUN_OBSERVED_STATE_SCANS }
+                }
+            }
+            steps {
+                // Observed state: collect runtime/cloud inventory and compliance evidence after deploy.
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials-id']]) {
+                    dir('kyc-terraform') {
+                        sh '''
+                            set -e
+                            mkdir -p security-reports/prowler security-reports/cloudquery security-reports/steampipe security-reports/custodian
+
+                            if command -v prowler >/dev/null 2>&1; then
+                              prowler aws --output-directory security-reports/prowler --status FAIL || true
+                            else
+                              echo "prowler is not installed; skipping observed-state compliance scan"
+                            fi
+
+                            if command -v cloudquery >/dev/null 2>&1; then
+                              cloudquery sync security/cloudquery/aws-source.yml security/cloudquery/file-destination.yml || true
+                            else
+                              echo "cloudquery is not installed; skipping inventory sync"
+                            fi
+
+                            if command -v steampipe >/dev/null 2>&1; then
+                              steampipe query --output json "select account_id, users, groups, roles, policies from aws_iam_account_summary" > security-reports/steampipe/iam-account-summary.json || true
+                            else
+                              echo "steampipe is not installed; skipping queryable-state checks"
+                            fi
+
+                            if command -v custodian >/dev/null 2>&1; then
+                              custodian run --dryrun -s security-reports/custodian security/custodian/policies.yml || true
+                            else
+                              echo "cloud custodian is not installed; skipping audit policies"
+                            fi
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Remediate Known Issues') {
+            when {
+                allOf {
+                    branch 'main'
+                    expression { return params.RUN_CUSTODIAN_REMEDIATION }
+                }
+            }
+            steps {
+                // Optional controlled remediation. This is intentionally gated because it changes AWS resources.
+                input message: 'Run Cloud Custodian remediation policies against production?', ok: 'Run Remediation'
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials-id']]) {
+                    dir('kyc-terraform') {
+                        sh 'custodian run -s security-reports/custodian-remediation security/custodian/policies.yml'
                     }
                 }
             }
         }
 
         stage('Ansible Configuration') {
+            when {
+                branch 'main'
+            }
             steps {
-                dir('ansible') {
-                    // Install Ansible if not present (simplified check)
+                // Configure management hosts that Terraform created.
+                dir('kyc-terraform/ansible') {
                     sh 'ansible-playbook -i inventory playbook-jenkins.yml'
                     sh 'ansible-playbook -i inventory playbook-bastion.yml'
                 }
@@ -83,6 +244,8 @@ pipeline {
 
     post {
         always {
+            // Keep plans and scan reports even when later stages fail.
+            archiveArtifacts artifacts: 'kyc-terraform/security-reports/**/*,kyc-terraform/environments/prod/*plan.txt,kyc-terraform/environments/prod/drift-report.txt', allowEmptyArchive: true
             cleanWs()
         }
     }

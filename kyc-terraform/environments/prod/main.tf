@@ -1,7 +1,3 @@
-provider "aws" {
-  region = var.region
-}
-
 # --- Networking ---
 module "networking" {
   source             = "../../modules/networking"

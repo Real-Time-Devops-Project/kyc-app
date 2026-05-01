@@ -1,0 +1,21 @@
+policies:
+  - name: s3-block-public-access-audit
+    resource: aws.s3
+    filters:
+      - type: check-public-block
+        BlockPublicAcls: false
+    actions:
+      - type: set-public-block
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  - name: ec2-require-managed-by-terraform-tag
+    resource: aws.ec2
+    filters:
+      - "tag:ManagedBy": absent
+    actions:
+      - type: tag
+        key: ManagedBy
+        value: Terraform

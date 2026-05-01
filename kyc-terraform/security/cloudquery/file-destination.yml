@@ -1,0 +1,9 @@
+kind: destination
+spec:
+  name: file
+  path: cloudquery/file
+  registry: cloudquery
+  version: latest
+  spec:
+    path: security-reports/cloudquery/aws-inventory.json
+    format: json

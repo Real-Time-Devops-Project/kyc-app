@@ -1,0 +1,19 @@
+kind: source
+spec:
+  name: aws
+  path: cloudquery/aws
+  registry: cloudquery
+  version: latest
+  tables:
+    - aws_ec2_instances
+    - aws_eks_clusters
+    - aws_iam_accounts
+    - aws_iam_roles
+    - aws_rds_instances
+    - aws_s3_buckets
+    - aws_vpcs
+  destinations:
+    - file
+  spec:
+    regions:
+      - us-east-1

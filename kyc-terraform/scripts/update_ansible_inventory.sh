@@ -4,8 +4,8 @@ set -e
 # --- Configuration ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
-TERRAFORM_DIR="$ROOT_DIR/kyc-terraform/environments/prod"
-ANSIBLE_DIR="$ROOT_DIR/kyc-ansible"
+TERRAFORM_DIR="$ROOT_DIR/environments/prod"
+ANSIBLE_DIR="$ROOT_DIR/ansible"
 INVENTORY_TEMPLATE="$ANSIBLE_DIR/inventory.template"
 INVENTORY_FILE="$ANSIBLE_DIR/inventory"
 
