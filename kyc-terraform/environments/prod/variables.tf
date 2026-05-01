@@ -63,13 +63,13 @@ variable "docdb_password" {
 variable "manage_master_user_password" {
   description = "Let AWS manage database master passwords in Secrets Manager"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "enable_postgres_iam_auth" {
   description = "Enable IAM database authentication for RDS PostgreSQL"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "k8s_namespace" {

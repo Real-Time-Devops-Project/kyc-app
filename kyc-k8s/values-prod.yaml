@@ -3,6 +3,7 @@ environment: prod
 replicaCount: 3
 serviceAccount:
   annotations:
+    # Set this to terraform output kyc_app_irsa_role_arn before enabling IAM DB auth.
     eks.amazonaws.com/role-arn: ""
 database:
   postgres:

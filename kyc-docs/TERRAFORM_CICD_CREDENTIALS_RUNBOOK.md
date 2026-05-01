@@ -325,7 +325,35 @@ app_db_username             = "kyc_app"
 docdb_app_secret_arn        = "arn:aws:secretsmanager:us-east-1:111122223333:secret:kyc/dev/docdb/app-abc123"
 ```
 
-Then update Helm values:
+Then update Helm values manually or with the helper script.
+
+Automated update:
+
+```bash
+./kyc-terraform/scripts/update_helm_irsa_values.sh prod true
+```
+
+Arguments:
+
+```text
+1st argument: environment name, for example dev, qa, prod
+2nd argument: postgres IAM auth flag, true or false
+```
+
+The script reads:
+
+```bash
+terraform -chdir=kyc-terraform/environments/<env> output -raw kyc_app_irsa_role_arn
+```
+
+Then updates:
+
+```yaml
+serviceAccount.annotations.eks.amazonaws.com/role-arn
+database.postgres.iamAuthEnabled
+```
+
+Manual equivalent:
 
 ```yaml
 serviceAccount:
@@ -338,6 +366,12 @@ database:
   docdb:
     mongoUriSecretArn: arn:aws:secretsmanager:us-east-1:111122223333:secret:kyc/dev/docdb/app-abc123
 ```
+
+Current repository status:
+
+- `kyc-terraform/environments/prod/variables.tf` defaults `manage_master_user_password = true`.
+- `kyc-terraform/environments/prod/variables.tf` defaults `enable_postgres_iam_auth = true`.
+- Helm environment files can be updated with `kyc-terraform/scripts/update_helm_irsa_values.sh` after Terraform creates the `kyc_app_irsa_role_arn` output.
 
 
 ## Environment Naming Standard
