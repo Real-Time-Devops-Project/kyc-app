@@ -61,3 +61,5 @@ Create these repository or environment secrets:
 - `TF_VAR_DOCDB_PASSWORD`: DocumentDB master password.
 
 Use the `prod` GitHub environment for deployment approval and `prod-destroy` for destroy approval.
+
+For full GitHub Actions and Jenkins credential setup across dev, QA, and prod, see `kyc-docs/TERRAFORM_CICD_CREDENTIALS_RUNBOOK.md`.
