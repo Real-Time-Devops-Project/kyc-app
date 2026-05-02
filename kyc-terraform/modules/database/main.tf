@@ -129,6 +129,6 @@ resource "aws_elasticache_replication_group" "redis" {
   security_group_ids         = var.security_group_ids
   at_rest_encryption_enabled = true
   kms_key_id                 = aws_kms_key.database.arn # CKV_AWS_191: CMK encryption
-  transit_encryption_enabled = true                      # CKV_AWS_31: Encrypt in transit
-  auth_token                 = var.redis_auth_token      # CKV_AWS_31: Auth token
+  transit_encryption_enabled = true                     # CKV_AWS_31: Encrypt in transit
+  auth_token                 = var.redis_auth_token     # CKV_AWS_31: Auth token
 }
