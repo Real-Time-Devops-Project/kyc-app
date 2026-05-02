@@ -134,7 +134,7 @@
 - **Fix:** Moved cross-referencing ingress rules to standalone `aws_security_group_rule` resources. SGs are created first (no cross-refs), then rules are added after
 - **Status:** ✅ Resolved
 
-### 6.6 Checkov IaC Security Scan Failures (22 findings)
+### 6.6 Checkov IaC Security Scan Failures (23 findings)
 
 | # | Check ID | Resource | Issue | Fix |
 |---|----------|----------|-------|-----|
@@ -160,8 +160,9 @@
 | 20 | CKV_AWS_290 | `aws_iam_role_policy.vpc_flow_logs` | IAM policy allows write without constraints | Scoped `Resource` to specific log group ARNs |
 | 21 | CKV_AWS_355 | `aws_iam_role_policy.vpc_flow_logs` | IAM policy allows `*` for restrictable actions | Same as above (removed `*` resource) |
 | 22 | CKV_AWS_231 | `aws_network_acl.app` | NACL allows 0.0.0.0/0 to port 3389 | Shifted ephemeral port range to `32768-65535` |
+| 23 | CKV_AWS_23 | `aws_security_group.eks_cluster` | Security group egress missing description | Added `description` to all 4 egress blocks in SGs |
 
-- **Status:** ✅ All 22 resolved
+- **Status:** ✅ All 23 resolved
 
 ---
 

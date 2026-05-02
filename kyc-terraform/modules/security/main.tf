@@ -5,6 +5,7 @@ resource "aws_security_group" "eks_cluster" {
   vpc_id      = var.vpc_id_app
 
   egress {
+    description = "Allow all outbound traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -23,6 +24,7 @@ resource "aws_security_group" "eks_nodes" {
   vpc_id      = var.vpc_id_app
 
   egress {
+    description = "Allow all outbound traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -117,6 +119,7 @@ resource "aws_security_group" "mgmt" {
   }
 
   egress {
+    description = "Allow all outbound traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -143,6 +146,7 @@ resource "aws_security_group" "proxy" {
   }
 
   egress {
+    description = "Allow all outbound traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
