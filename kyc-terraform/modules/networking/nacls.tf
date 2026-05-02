@@ -19,7 +19,7 @@ resource "aws_network_acl" "app" {
     rule_no    = 200
     action     = "allow"
     cidr_block = "0.0.0.0/0"
-    from_port  = 1024
+    from_port  = 32768
     to_port    = 65535
   }
 
@@ -59,7 +59,7 @@ resource "aws_network_acl" "mgmt" {
     rule_no    = 200
     action     = "allow"
     cidr_block = "0.0.0.0/0"
-    from_port  = 1024
+    from_port  = 32768
     to_port    = 65535
   }
 

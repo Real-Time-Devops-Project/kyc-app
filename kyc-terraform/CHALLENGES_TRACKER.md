@@ -134,7 +134,7 @@
 - **Fix:** Moved cross-referencing ingress rules to standalone `aws_security_group_rule` resources. SGs are created first (no cross-refs), then rules are added after
 - **Status:** ✅ Resolved
 
-### 6.6 Checkov IaC Security Scan Failures (14 findings)
+### 6.6 Checkov IaC Security Scan Failures (22 findings)
 
 | # | Check ID | Resource | Issue | Fix |
 |---|----------|----------|-------|-----|
@@ -152,8 +152,16 @@
 | 12 | CKV_AWS_126 | `aws_instance.jenkins` | Detailed monitoring not enabled | Added `monitoring = true` |
 | 13 | CKV_AWS_135 | `aws_instance.bastion` | EBS not optimized | Added `ebs_optimized = true` |
 | 14 | CKV_AWS_126 | `aws_instance.bastion` | Detailed monitoring not enabled | Added `monitoring = true` |
+| 15 | CKV_AWS_300 | `aws_s3_bucket_lifecycle_configuration.artifacts` | No period for aborting failed uploads | Added `abort_incomplete_multipart_upload` |
+| 16 | CKV_AWS_130 | `aws_subnet.transit_untrusted` | Subnets map public IP by default | Set `map_public_ip_on_launch = false` |
+| 17 | CKV_AWS_331 | `aws_ec2_transit_gateway.tgw` | TGW automatically accepts VPC attachments | Set `auto_accept_shared_attachments = "disable"` |
+| 18 | CKV_AWS_338 | `aws_cloudwatch_log_group.vpc_flow_logs` | Log retention less than 1 year | Increased `retention_in_days = 365` |
+| 19 | CKV_AWS_158 | `aws_cloudwatch_log_group.vpc_flow_logs` | Logs not encrypted by KMS | Created `aws_kms_key` and added `kms_key_id` |
+| 20 | CKV_AWS_290 | `aws_iam_role_policy.vpc_flow_logs` | IAM policy allows write without constraints | Scoped `Resource` to specific log group ARNs |
+| 21 | CKV_AWS_355 | `aws_iam_role_policy.vpc_flow_logs` | IAM policy allows `*` for restrictable actions | Same as above (removed `*` resource) |
+| 22 | CKV_AWS_231 | `aws_network_acl.app` | NACL allows 0.0.0.0/0 to port 3389 | Shifted ephemeral port range to `32768-65535` |
 
-- **Status:** ✅ All 14 resolved
+- **Status:** ✅ All 22 resolved
 
 ---
 

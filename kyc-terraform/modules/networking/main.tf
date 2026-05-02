@@ -14,7 +14,7 @@ resource "aws_subnet" "transit_untrusted" {
   vpc_id                  = aws_vpc.transit.id
   cidr_block              = cidrsubnet(var.vpc_cidrs["transit"], 8, count.index)
   availability_zone       = var.availability_zones[count.index]
-  map_public_ip_on_launch = true
+  map_public_ip_on_launch = false
   tags = {
     Name = "${var.environment}-transit-untrusted-${count.index + 1}"
     Tier = "Untrusted"
@@ -88,7 +88,7 @@ resource "aws_route_table_association" "transit_trusted" {
 # --- Transit Gateway ---
 resource "aws_ec2_transit_gateway" "tgw" {
   description                     = "Transit Gateway for Hub-Spoke Architecture"
-  auto_accept_shared_attachments  = "enable"
+  auto_accept_shared_attachments  = "disable"
   default_route_table_association = "enable"
   default_route_table_propagation = "enable"
   tags = {
@@ -166,10 +166,52 @@ resource "aws_ec2_transit_gateway_vpc_attachment" "mgmt" {
 }
 
 # --- VPC Flow Logs ---
+data "aws_region" "current" {}
+data "aws_caller_identity" "current" {}
+
+resource "aws_kms_key" "vpc_flow_logs" {
+  description             = "KMS key for VPC Flow Logs encryption"
+  deletion_window_in_days = 14
+  enable_key_rotation     = true
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "logs.${data.aws_region.current.name}.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt*",
+          "kms:Decrypt*",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:Describe*"
+        ]
+        Resource = "*"
+        Condition = {
+          ArnEquals = {
+            "kms:EncryptionContext:aws:logs:arn" : "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/vpc/*"
+          }
+        }
+      }
+    ]
+  })
+}
+
 resource "aws_cloudwatch_log_group" "vpc_flow_logs" {
   for_each          = toset(["app", "mgmt", "transit"])
   name              = "/aws/vpc/${var.environment}-${each.key}-flow-logs"
-  retention_in_days = 30
+  retention_in_days = 365
+  kms_key_id        = aws_kms_key.vpc_flow_logs.arn
 }
 
 resource "aws_iam_role" "vpc_flow_logs" {
@@ -202,7 +244,7 @@ resource "aws_iam_role_policy" "vpc_flow_logs" {
         "logs:DescribeLogGroups",
         "logs:DescribeLogStreams"
       ]
-      Resource = "*"
+      Resource = [for k in ["app", "mgmt", "transit"] : "${aws_cloudwatch_log_group.vpc_flow_logs[k].arn}:*"]
     }]
   })
 }
