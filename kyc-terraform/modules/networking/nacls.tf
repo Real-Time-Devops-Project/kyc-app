@@ -1,5 +1,6 @@
 # --- App VPC NACL ---
 resource "aws_network_acl" "app" {
+  #checkov:skip=CKV2_AWS_1: NACL is explicitly attached to subnets
   vpc_id     = aws_vpc.app.id
   subnet_ids = aws_subnet.app_private[*].id
 
@@ -40,6 +41,7 @@ resource "aws_network_acl" "app" {
 
 # --- Mgmt VPC NACL ---
 resource "aws_network_acl" "mgmt" {
+  #checkov:skip=CKV2_AWS_1: NACL is explicitly attached to subnets
   vpc_id     = aws_vpc.mgmt.id
   subnet_ids = aws_subnet.mgmt_private[*].id
 

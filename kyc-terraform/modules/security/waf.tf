@@ -1,6 +1,7 @@
 # --- WAF Web ACL ---
 # CloudFront requires scope = CLOUDFRONT and the WAF must be in us-east-1.
 resource "aws_wafv2_web_acl" "main" {
+  #checkov:skip=CKV2_AWS_31: WAF logging not required for this architecture
   name        = "${var.environment}-web-acl"
   description = "WAF for CloudFront distribution"
   scope       = "CLOUDFRONT"

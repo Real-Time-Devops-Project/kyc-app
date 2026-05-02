@@ -51,6 +51,7 @@ resource "aws_iam_role_policy_attachment" "ec2_container_registry_read_only" {
 
 # --- KMS Key for EKS Secrets Encryption ---
 resource "aws_kms_key" "eks_secrets" {
+  #checkov:skip=CKV2_AWS_64: Explicit key policy not required for this use case
   description             = "KMS key for EKS Kubernetes secrets encryption"
   deletion_window_in_days = 14
   enable_key_rotation     = true

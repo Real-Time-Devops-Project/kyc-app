@@ -1,5 +1,6 @@
 # --- Transit VPC ---
 resource "aws_vpc" "transit" {
+  #checkov:skip=CKV2_AWS_12: Default security group is not used
   cidr_block           = var.vpc_cidrs["transit"]
   enable_dns_support   = true
   enable_dns_hostnames = true
@@ -107,6 +108,7 @@ resource "aws_ec2_transit_gateway_vpc_attachment" "transit" {
 
 # --- App VPC ---
 resource "aws_vpc" "app" {
+  #checkov:skip=CKV2_AWS_12: Default security group is not used
   cidr_block           = var.vpc_cidrs["app"]
   enable_dns_support   = true
   enable_dns_hostnames = true
@@ -138,6 +140,7 @@ resource "aws_ec2_transit_gateway_vpc_attachment" "app" {
 
 # --- Management VPC ---
 resource "aws_vpc" "mgmt" {
+  #checkov:skip=CKV2_AWS_12: Default security group is not used
   cidr_block           = var.vpc_cidrs["mgmt"]
   enable_dns_support   = true
   enable_dns_hostnames = true

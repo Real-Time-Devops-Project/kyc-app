@@ -1,5 +1,7 @@
 # --- EKS Cluster Security Group ---
 resource "aws_security_group" "eks_cluster" {
+  #checkov:skip=CKV2_AWS_5: Attached in EKS module
+  #checkov:skip=CKV_AWS_382: Egress to all ports is required for outbound internet access
   name        = "${var.environment}-eks-cluster-sg"
   description = "Security group for EKS Cluster Control Plane"
   vpc_id      = var.vpc_id_app
@@ -19,6 +21,8 @@ resource "aws_security_group" "eks_cluster" {
 
 # --- EKS Worker Nodes Security Group ---
 resource "aws_security_group" "eks_nodes" {
+  #checkov:skip=CKV2_AWS_5: Attached in EKS module
+  #checkov:skip=CKV_AWS_382: Egress to all ports is required for outbound internet access
   name        = "${var.environment}-eks-node-sg"
   description = "Security group for EKS Worker Nodes"
   vpc_id      = var.vpc_id_app
@@ -70,6 +74,7 @@ resource "aws_security_group_rule" "nodes_ingress_from_cluster" {
 
 # --- Database Security Group ---
 resource "aws_security_group" "database" {
+  #checkov:skip=CKV2_AWS_5: Attached in database module
   name        = "${var.environment}-database-sg"
   description = "Security group for RDS, DocumentDB, and Redis"
   vpc_id      = var.vpc_id_app
@@ -106,6 +111,8 @@ resource "aws_security_group" "database" {
 
 # --- Management/Bastion Security Group ---
 resource "aws_security_group" "mgmt" {
+  #checkov:skip=CKV2_AWS_5: Attached in management module
+  #checkov:skip=CKV_AWS_382: Egress to all ports is required for outbound internet access
   name        = "${var.environment}-mgmt-sg"
   description = "Security group for Management Tools"
   vpc_id      = var.vpc_id_mgmt
@@ -133,6 +140,8 @@ resource "aws_security_group" "mgmt" {
 
 # --- Proxy Server Security Group ---
 resource "aws_security_group" "proxy" {
+  #checkov:skip=CKV2_AWS_5: Attached in management module
+  #checkov:skip=CKV_AWS_382: Egress to all ports is required for outbound internet access
   name        = "${var.environment}-proxy-sg"
   description = "Security group for Proxy Servers (Zscaler/Squid)"
   vpc_id      = var.vpc_id_mgmt

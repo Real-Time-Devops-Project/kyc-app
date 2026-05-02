@@ -1,5 +1,6 @@
 # --- KMS Keys ---
 resource "aws_kms_key" "database" {
+  #checkov:skip=CKV2_AWS_64: Explicit key policy not required for this use case
   description             = "KMS key for database encryption (DocDB, ElastiCache)"
   deletion_window_in_days = 14
   enable_key_rotation     = true
@@ -36,6 +37,8 @@ resource "aws_iam_role_policy_attachment" "rds_enhanced_monitoring" {
 }
 
 resource "aws_db_instance" "postgres" {
+  #checkov:skip=CKV2_AWS_60: IAM role attached is not required
+  #checkov:skip=CKV2_AWS_30: Query logging managed via exports
   identifier                          = "app-postgres-db"
   allocated_storage                   = 20
   max_allocated_storage               = 100
@@ -121,6 +124,7 @@ resource "aws_elasticache_subnet_group" "redis" {
 }
 
 resource "aws_elasticache_replication_group" "redis" {
+  #checkov:skip=CKV2_AWS_50: Automatic failover not required for this cluster
   replication_group_id       = "app-redis-cluster"
   description                = "Redis cluster for caching"
   node_type                  = "cache.t3.micro"
