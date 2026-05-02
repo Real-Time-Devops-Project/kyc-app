@@ -32,6 +32,11 @@ variable "cluster_name" {
   default     = "prod-eks-cluster"
 }
 
+variable "key_name" {
+  description = "SSH Key Pair name for management instances"
+  type        = string
+}
+
 variable "db_name" {
   description = "Name of the database"
   type        = string
@@ -90,8 +95,3 @@ variable "app_db_username" {
   default     = "kyc_app"
 }
 
-variable "docdb_app_secret_arn" {
-  description = "Secrets Manager ARN containing application MongoDB URI for pods to read through IRSA"
-  type        = string
-  default     = "*"
-}

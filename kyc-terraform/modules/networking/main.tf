@@ -1,23 +1,3 @@
-variable "region" {
-  description = "AWS Region"
-  type        = string
-}
-
-variable "environment" {
-  description = "Environment name"
-  type        = string
-}
-
-variable "vpc_cidrs" {
-  description = "CIDR blocks for VPCs"
-  type        = map(string)
-}
-
-variable "availability_zones" {
-  description = "List of availability zones"
-  type        = list(string)
-}
-
 # --- Transit VPC ---
 resource "aws_vpc" "transit" {
   cidr_block           = var.vpc_cidrs["transit"]
@@ -30,10 +10,10 @@ resource "aws_vpc" "transit" {
 
 # --- Transit VPC Subnets ---
 resource "aws_subnet" "transit_untrusted" {
-  count             = length(var.availability_zones)
-  vpc_id            = aws_vpc.transit.id
-  cidr_block        = cidrsubnet(var.vpc_cidrs["transit"], 8, count.index)
-  availability_zone = var.availability_zones[count.index]
+  count                   = length(var.availability_zones)
+  vpc_id                  = aws_vpc.transit.id
+  cidr_block              = cidrsubnet(var.vpc_cidrs["transit"], 8, count.index)
+  availability_zone       = var.availability_zones[count.index]
   map_public_ip_on_launch = true
   tags = {
     Name = "${var.environment}-transit-untrusted-${count.index + 1}"
@@ -60,12 +40,11 @@ resource "aws_internet_gateway" "transit_igw" {
 }
 
 # --- Firewall / Proxy Placeholder ---
-# In a real scenario, this would be a Network Firewall Endpoint or Gateway Load Balancer Endpoint
+# In production, replace this with an AWS Network Firewall Endpoint or Gateway Load Balancer Endpoint.
 resource "aws_network_interface" "firewall_eni" {
-  subnet_id       = aws_subnet.transit_untrusted[0].id
-  security_groups = [] # Add security groups if needed
+  subnet_id = aws_subnet.transit_untrusted[0].id
   tags = {
-    Name = "firewall-interface"
+    Name = "${var.environment}-firewall-interface"
   }
 }
 
@@ -142,9 +121,9 @@ resource "aws_subnet" "app_private" {
   cidr_block        = cidrsubnet(var.vpc_cidrs["app"], 8, count.index)
   availability_zone = var.availability_zones[count.index]
   tags = {
-    Name                                           = "${var.environment}-app-private-${count.index + 1}"
-    "kubernetes.io/role/internal-elb"              = "1"
-    "kubernetes.io/cluster/${var.environment}-eks" = "shared"
+    Name                                                    = "${var.environment}-app-private-${count.index + 1}"
+    "kubernetes.io/role/internal-elb"                       = "1"
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   }
 }
 
@@ -186,19 +165,80 @@ resource "aws_ec2_transit_gateway_vpc_attachment" "mgmt" {
   }
 }
 
-# --- Outputs ---
-output "vpc_ids" {
-  value = {
-    transit = aws_vpc.transit.id
-    app     = aws_vpc.app.id
-    mgmt    = aws_vpc.mgmt.id
+# --- VPC Flow Logs ---
+resource "aws_cloudwatch_log_group" "vpc_flow_logs" {
+  for_each          = toset(["app", "mgmt", "transit"])
+  name              = "/aws/vpc/${var.environment}-${each.key}-flow-logs"
+  retention_in_days = 30
+}
+
+resource "aws_iam_role" "vpc_flow_logs" {
+  name = "${var.environment}-vpc-flow-logs-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = "sts:AssumeRole"
+      Principal = {
+        Service = "vpc-flow-logs.amazonaws.com"
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "vpc_flow_logs" {
+  name = "${var.environment}-vpc-flow-logs-policy"
+  role = aws_iam_role.vpc_flow_logs.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams"
+      ]
+      Resource = "*"
+    }]
+  })
+}
+
+resource "aws_flow_log" "app" {
+  vpc_id               = aws_vpc.app.id
+  traffic_type         = "ALL"
+  iam_role_arn         = aws_iam_role.vpc_flow_logs.arn
+  log_destination      = aws_cloudwatch_log_group.vpc_flow_logs["app"].arn
+  log_destination_type = "cloud-watch-logs"
+
+  tags = {
+    Name = "${var.environment}-app-vpc-flow-log"
   }
 }
 
-output "app_subnet_ids" {
-  value = aws_subnet.app_private[*].id
+resource "aws_flow_log" "mgmt" {
+  vpc_id               = aws_vpc.mgmt.id
+  traffic_type         = "ALL"
+  iam_role_arn         = aws_iam_role.vpc_flow_logs.arn
+  log_destination      = aws_cloudwatch_log_group.vpc_flow_logs["mgmt"].arn
+  log_destination_type = "cloud-watch-logs"
+
+  tags = {
+    Name = "${var.environment}-mgmt-vpc-flow-log"
+  }
 }
 
-output "mgmt_subnet_ids" {
-  value = aws_subnet.mgmt_private[*].id
+resource "aws_flow_log" "transit" {
+  vpc_id               = aws_vpc.transit.id
+  traffic_type         = "ALL"
+  iam_role_arn         = aws_iam_role.vpc_flow_logs.arn
+  log_destination      = aws_cloudwatch_log_group.vpc_flow_logs["transit"].arn
+  log_destination_type = "cloud-watch-logs"
+
+  tags = {
+    Name = "${var.environment}-transit-vpc-flow-log"
+  }
 }

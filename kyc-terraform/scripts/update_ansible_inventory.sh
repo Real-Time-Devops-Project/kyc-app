@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # --- Configuration ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,26 +13,20 @@ echo "------------------------------------------------"
 echo "Updating Ansible Inventory from Terraform Outputs"
 echo "------------------------------------------------"
 
-# 1. Check if Terraform has been initialized and applied
+# 1. Check if Terraform has been initialized
 if [ ! -d "$TERRAFORM_DIR/.terraform" ]; then
     echo "Error: Terraform directory not found or not initialized at $TERRAFORM_DIR"
     echo "Please run 'terraform init' and 'terraform apply' first."
     exit 1
 fi
 
-# 2. Extract Outputs from Terraform
+# 2. Extract Outputs from Terraform (works with both local and remote state)
 echo "Reading Terraform outputs..."
 pushd "$TERRAFORM_DIR" > /dev/null
 
-# Check if state file exists
-if [ ! -f "terraform.tfstate" ]; then
-     echo "Warning: terraform.tfstate not found. Using empty values."
-     JENKINS_IP=""
-     BASTION_IP=""
-else
-    JENKINS_IP=$(terraform output -raw jenkins_ip 2>/dev/null || echo "")
-    BASTION_IP=$(terraform output -raw bastion_ip 2>/dev/null || echo "")
-fi
+JENKINS_IP=$(terraform output -raw jenkins_ip 2>/dev/null || echo "")
+BASTION_IP=$(terraform output -raw bastion_ip 2>/dev/null || echo "")
+
 popd > /dev/null
 
 if [ -z "$JENKINS_IP" ]; then

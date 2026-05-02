@@ -7,9 +7,9 @@ output "vpc_ids" {
   }
 }
 
-output "transit_public_subnet_ids" {
-  description = "IDs of public subnets in Transit VPC"
-  value       = aws_subnet.transit_public[*].id
+output "transit_untrusted_subnet_ids" {
+  description = "IDs of untrusted (public) subnets in Transit VPC"
+  value       = aws_subnet.transit_untrusted[*].id
 }
 
 output "app_subnet_ids" {

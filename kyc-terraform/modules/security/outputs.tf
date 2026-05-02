@@ -17,3 +17,8 @@ output "mgmt_sg_id" {
   description = "Security Group ID for Management Tools"
   value       = aws_security_group.mgmt.id
 }
+
+output "proxy_sg_id" {
+  description = "Security Group ID for Proxy Server"
+  value       = aws_security_group.proxy.id
+}

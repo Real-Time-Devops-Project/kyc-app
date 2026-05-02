@@ -58,7 +58,8 @@ resource "aws_iam_policy" "kyc_app_runtime_access" {
           "secretsmanager:DescribeSecret",
           "secretsmanager:GetSecretValue"
         ]
-        Resource = var.docdb_app_secret_arn
+        # Auto-resolved from the database module — no manual ARN needed.
+        Resource = module.database.docdb_master_user_secret_arn
       }
     ]
   })

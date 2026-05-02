@@ -6,21 +6,23 @@
     jenkins_java_options: "-Djava.awt.headless=true"
 
   tasks:
-    - name: Install Java (Jenkins dependency)
+    - name: Install Java 17 (Jenkins dependency)
       apt:
-        name: openjdk-11-jdk
+        name: openjdk-17-jdk
         state: present
         update_cache: yes
 
-    - name: Add Jenkins repository key
-      apt_key:
-        url: https://pkg.jenkins.io/debian-stable/jenkins.io.key
-        state: present
+    - name: Download Jenkins GPG key
+      get_url:
+        url: https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key
+        dest: /etc/apt/keyrings/jenkins-keyring.asc
+        mode: '0644'
 
     - name: Add Jenkins repository
       apt_repository:
-        repo: deb https://pkg.jenkins.io/debian-stable binary/
+        repo: "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/"
         state: present
+        filename: jenkins
 
     - name: Install Jenkins
       apt:

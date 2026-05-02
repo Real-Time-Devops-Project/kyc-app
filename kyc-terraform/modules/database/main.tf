@@ -1,18 +1,3 @@
-variable "vpc_id" {
-  description = "VPC ID where databases will be deployed"
-  type        = string
-}
-
-variable "subnet_ids" {
-  description = "List of subnet IDs for the databases"
-  type        = list(string)
-}
-
-variable "security_group_ids" {
-  description = "List of security group IDs"
-  type        = list(string)
-}
-
 # --- RDS PostgreSQL ---
 resource "aws_db_subnet_group" "rds" {
   name       = "rds-subnet-group"
@@ -26,8 +11,9 @@ resource "aws_db_subnet_group" "rds" {
 resource "aws_db_instance" "postgres" {
   identifier                          = "app-postgres-db"
   allocated_storage                   = 20
+  max_allocated_storage               = 100
   engine                              = "postgres"
-  engine_version                      = "14"
+  engine_version                      = "16"
   instance_class                      = "db.t3.micro"
   db_name                             = var.db_name
   username                            = var.db_username
@@ -36,7 +22,18 @@ resource "aws_db_instance" "postgres" {
   iam_database_authentication_enabled = var.enable_postgres_iam_auth
   db_subnet_group_name                = aws_db_subnet_group.rds.name
   vpc_security_group_ids              = var.security_group_ids
-  skip_final_snapshot                 = true
+  storage_encrypted                   = true
+  multi_az                            = true
+  backup_retention_period             = 7
+  backup_window                       = "03:00-04:00"
+  maintenance_window                  = "mon:04:30-mon:05:30"
+  deletion_protection                 = true
+  skip_final_snapshot                 = false
+  final_snapshot_identifier           = "app-postgres-db-final-snapshot"
+
+  tags = {
+    Name = "app-postgres-db"
+  }
 }
 
 # --- DocumentDB ---
@@ -53,7 +50,16 @@ resource "aws_docdb_cluster" "docdb" {
   manage_master_user_password = var.manage_master_user_password
   db_subnet_group_name        = aws_docdb_subnet_group.docdb.name
   vpc_security_group_ids      = var.security_group_ids
-  skip_final_snapshot         = true
+  storage_encrypted           = true
+  backup_retention_period     = 7
+  preferred_backup_window     = "03:00-04:00"
+  deletion_protection         = true
+  skip_final_snapshot         = false
+  final_snapshot_identifier   = "app-docdb-cluster-final-snapshot"
+
+  tags = {
+    Name = "app-docdb-cluster"
+  }
 }
 
 resource "aws_docdb_cluster_instance" "cluster_instances" {

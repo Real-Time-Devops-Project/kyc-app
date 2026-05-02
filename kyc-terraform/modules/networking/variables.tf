@@ -17,3 +17,8 @@ variable "availability_zones" {
   description = "List of availability zones"
   type        = list(string)
 }
+
+variable "cluster_name" {
+  description = "Name of the EKS cluster for Kubernetes subnet tagging"
+  type        = string
+}

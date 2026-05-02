@@ -5,6 +5,7 @@ module "networking" {
   environment        = var.environment
   vpc_cidrs          = var.vpc_cidrs
   availability_zones = var.availability_zones
+  cluster_name       = var.cluster_name
 }
 
 # --- Security ---
@@ -12,12 +13,13 @@ module "security" {
   source      = "../../modules/security"
   vpc_id_app  = module.networking.vpc_ids["app"]
   vpc_id_mgmt = module.networking.vpc_ids["mgmt"]
+  environment = var.environment
 }
 
 # --- EKS ---
 module "eks" {
   source                = "../../modules/eks"
-  cluster_name          = "${var.environment}-eks-cluster"
+  cluster_name          = var.cluster_name
   subnet_ids            = module.networking.app_subnet_ids
   node_group_subnet_ids = module.networking.app_subnet_ids
   security_group_ids    = [module.security.eks_cluster_sg_id]
@@ -43,6 +45,7 @@ module "management" {
   environment        = var.environment
   subnet_id          = module.networking.mgmt_subnet_ids[0]
   security_group_ids = [module.security.mgmt_sg_id]
+  key_name           = var.key_name
 }
 
 # --- Web (CloudFront + S3 + WAF) ---

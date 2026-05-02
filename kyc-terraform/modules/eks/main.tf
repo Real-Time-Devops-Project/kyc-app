@@ -1,23 +1,3 @@
-variable "cluster_name" {
-  description = "Name of the EKS cluster"
-  type        = string
-}
-
-variable "subnet_ids" {
-  description = "List of subnet IDs for the EKS cluster"
-  type        = list(string)
-}
-
-variable "security_group_ids" {
-  description = "List of security group IDs for the EKS cluster"
-  type        = list(string)
-}
-
-variable "node_group_subnet_ids" {
-  description = "List of subnet IDs for the node groups"
-  type        = list(string)
-}
-
 # --- IAM Roles ---
 resource "aws_iam_role" "eks_cluster" {
   name = "${var.cluster_name}-cluster-role"
@@ -73,11 +53,17 @@ resource "aws_iam_role_policy_attachment" "ec2_container_registry_read_only" {
 resource "aws_eks_cluster" "main" {
   name     = var.cluster_name
   role_arn = aws_iam_role.eks_cluster.arn
+  version  = var.cluster_version
 
   vpc_config {
-    subnet_ids         = var.subnet_ids
-    security_group_ids = var.security_group_ids
+    subnet_ids              = var.subnet_ids
+    security_group_ids      = var.security_group_ids
+    endpoint_private_access = true
+    endpoint_public_access  = false
   }
+
+  # Enable control plane logging for security auditing and troubleshooting.
+  enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
 
   depends_on = [
     aws_iam_role_policy_attachment.eks_cluster_policy
@@ -90,11 +76,14 @@ resource "aws_eks_node_group" "main" {
   node_group_name = "general-workers"
   node_role_arn   = aws_iam_role.eks_nodes.arn
   subnet_ids      = var.node_group_subnet_ids
+  instance_types  = var.node_instance_types
+  disk_size       = var.node_disk_size
+  capacity_type   = var.node_capacity_type
 
   scaling_config {
-    desired_size = 2
-    max_size     = 3
-    min_size     = 1
+    desired_size = var.node_desired_size
+    max_size     = var.node_max_size
+    min_size     = var.node_min_size
   }
 
   depends_on = [
@@ -102,12 +91,4 @@ resource "aws_eks_node_group" "main" {
     aws_iam_role_policy_attachment.eks_cni_policy,
     aws_iam_role_policy_attachment.ec2_container_registry_read_only,
   ]
-}
-
-output "cluster_endpoint" {
-  value = aws_eks_cluster.main.endpoint
-}
-
-output "cluster_name" {
-  value = aws_eks_cluster.main.name
 }

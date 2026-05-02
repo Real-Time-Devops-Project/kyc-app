@@ -37,11 +37,8 @@ permissions:
   pull-requests: write
 
 env:
-  # Secrets become Terraform variables because they use the TF_VAR_ prefix.
   AWS_REGION: ${{ inputs.aws_region || 'us-east-1' }}
   TF_IN_AUTOMATION: true
-  TF_VAR_postgres_password: ${{ secrets.TF_VAR_POSTGRES_PASSWORD }}
-  TF_VAR_docdb_password: ${{ secrets.TF_VAR_DOCDB_PASSWORD }}
 
 jobs:
   terraform-ci:

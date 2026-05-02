@@ -4,23 +4,21 @@ This repository contains the Terraform configuration files for provisioning the 
 
 ## Infrastructure Components
 
-- VPC (Virtual Private Cloud)
-- Subnets (Public/Private)
-- NAT Gateway
-- EKS (Elastic Kubernetes Service) Cluster
-- IAM Roles and Policies
-- Security Groups
-- RDS (for PostgreSQL)
-- ElasticCache (Redis)
-- ECR Repositories
+- **Networking**: Hub-spoke architecture with Transit VPC, App VPC, and Management VPC connected via Transit Gateway
+- **EKS**: Elastic Kubernetes Service cluster with managed node groups (private endpoint)
+- **Security**: Security groups, WAFv2 (CloudFront scope), NACLs
+- **Database**: RDS PostgreSQL (IAM auth, encrypted, multi-AZ), DocumentDB, ElastiCache Redis
+- **Management**: Jenkins server, Bastion host (IMDSv2 enforced)
+- **Web**: S3 static hosting with CloudFront distribution
+- **Observability**: VPC Flow Logs to CloudWatch, EKS control plane logging
 
 ## Usage
 
-1.  Install Terraform (v1.5+).
-2.  Navigate to the relevant environment folder (e.g., `environments/dev`).
-3.  Initialize Terraform:
+1.  Install Terraform (v1.5.7 — pinned in `.terraform-version`).
+2.  Navigate to the environment folder: `cd environments/prod`
+3.  Initialize Terraform (auto-detects branch for backend key):
     ```bash
-    terraform init
+    bash ../../scripts/tf-init.sh
     ```
 4.  Plan the infrastructure:
     ```bash
@@ -33,12 +31,15 @@ This repository contains the Terraform configuration files for provisioning the 
 
 ## Structure
 
-- `modules/`: Reusable Terraform modules (vpc, eks, etc.).
-- `environments/`: Environment-specific configurations (dev, prod).
+- `modules/`: Reusable Terraform modules (networking, eks, database, security, management, web).
+- `environments/`: Environment-specific configurations (prod).
+- `scripts/`: Helper scripts (tf-init.sh, update_ansible_inventory.sh, update_helm_irsa_values.sh).
+- `ansible/`: Post-provision configuration playbooks for Jenkins and Bastion.
+- `security/`: CloudQuery and Cloud Custodian policy definitions.
 
 ## CI/CD State Reconciliation
 
-The Jenkins and GitHub Actions pipelines now follow the three-state cloud loop:
+The Jenkins and GitHub Actions pipelines follow the three-state cloud loop:
 
 - **Intended state:** Terraform format, init, validate, and Checkov IaC scans.
 - **Actual state:** Terraform refresh-only drift detection, plan, apply, or destroy.
