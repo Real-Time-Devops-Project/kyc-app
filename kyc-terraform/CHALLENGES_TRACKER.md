@@ -200,6 +200,16 @@
     * **`CKV2_AWS_5` (Security Groups attached)** & **`CKV2_AWS_1` (NACLs attached)**: Checkov false positives; it fails to detect module-level cross-file attachments.
     * **CloudFront Checks (`CKV_AWS_86`, `CKV_AWS_310`, `CKV_AWS_374`, etc.)**: A standard SPA distribution does not strictly require WAF AMR, Geo-restriction, or origin failovers.
 
+### 6.11 Terraform PR Summarization for Non-Technical Managers
+- **Challenge:** The `tf-summarize` tool outputs a dense, technical table of Terraform resource names (e.g., `aws_iam_role.kyc_app_irsa`, `aws_eks_cluster.main`) that non-technical managers find difficult to read and understand.
+- **Tool Comparison:**
+  - `tf-summarize`: Fast but too technical.
+  - `Infracost`: Excellent for cost analysis but lacks architecture context.
+  - `Atlantis`: Robust but requires a dedicated server and is still technical.
+  - `AI/LLM Actions`: Produces perfect English but introduces API dependencies, cost, and latency.
+- **Solution:** Replaced `tf-summarize` with a lightweight, custom Python script (`scripts/human_summary.py`) running in the CI pipeline. The script parses the JSON plan and translates technical prefixes (`aws_eks`, `aws_db`) into high-level, manager-friendly categories (e.g., 🚀 **EKS Kubernetes Cluster**, 🗄️ **Databases & Caching**).
+- **Status:** ✅ Resolved
+
 *   **Result**: The infrastructure code now passes with 0 failed checks. (Total: 217 Passed, 0 Failed, 39 Skipped).
 
 ---
