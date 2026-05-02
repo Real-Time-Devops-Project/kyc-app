@@ -131,7 +131,7 @@ jobs:
       - name: Create human-readable plan summary
         # Parses the tfplan JSON using a custom script to generate a manager-friendly markdown summary.
         run: |
-          python3 ../../scripts/human_summary.py tfplan.json > tfplan-summary.md
+          python3 ../../scripts/human_summary.py tfplan.json "${{ env.AWS_REGION }}" > tfplan-summary.md
           cat tfplan-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment plan summary on PR

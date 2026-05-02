@@ -17,12 +17,36 @@ def get_category(resource_type):
     else:
         return "⚙️ General Infrastructure"
 
+def get_resource_friendly_name(rc):
+    # Try to get physical name or Name tag, otherwise fallback to logical name
+    logical_name = rc.get('name', 'unknown')
+    res_type = rc.get('type', '')
+    
+    after = rc.get('change', {}).get('after', {})
+    if not after:
+        return f"{res_type}.{logical_name}"
+        
+    # Check for tags -> Name
+    tags = after.get('tags', {})
+    if isinstance(tags, dict) and 'Name' in tags:
+        return f"{tags['Name']} ({res_type})"
+        
+    # Check for 'name' or 'identifier'
+    if 'name' in after and after['name']:
+        return f"{after['name']} ({res_type})"
+    if 'identifier' in after and after['identifier']:
+        return f"{after['identifier']} ({res_type})"
+        
+    return f"{logical_name} ({res_type})"
+
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python human_summary.py <path_to_tfplan.json>")
+        print("Usage: python human_summary.py <path_to_tfplan.json> [region]")
         sys.exit(1)
 
     plan_path = sys.argv[1]
+    region = sys.argv[2] if len(sys.argv) > 2 else "us-east-1"
+    
     try:
         with open(plan_path, 'r') as f:
             plan = json.load(f)
@@ -32,7 +56,7 @@ def main():
 
     resource_changes = plan.get('resource_changes', [])
     
-    # Structure: { category_name: { "create": 0, "update": 0, "delete": 0 } }
+    # Structure: { category_name: { "create": [], "update": [], "delete": [], "replace": [] } }
     categories = {}
 
     for rc in resource_changes:
@@ -56,30 +80,49 @@ def main():
 
         res_type = rc.get('type', '')
         cat = get_category(res_type)
+        friendly_name = get_resource_friendly_name(rc)
         
         if cat not in categories:
-            categories[cat] = {"create": 0, "update": 0, "delete": 0, "replace": 0}
+            categories[cat] = {"create": [], "update": [], "delete": [], "replace": []}
             
-        categories[cat][action_type] += 1
+        categories[cat][action_type].append(friendly_name)
 
     if not categories:
         print("No infrastructure changes required.")
         return
 
     print("### 🚀 Infrastructure Deployment Summary\n")
-    print("This deployment will make the following high-level changes to your AWS environment:\n")
+    print("This deployment will make the following high-level changes to your AWS environment.\n")
+    print("| Category | Action | Region | Resource List |")
+    print("|---|---|---|---|")
 
-    for cat, counts in categories.items():
-        print(f"#### {cat}")
-        if counts["create"] > 0:
-            print(f"- ✨ **Creating** {counts['create']} resource(s)")
-        if counts["update"] > 0:
-            print(f"- 🔄 **Updating** {counts['update']} resource(s)")
-        if counts["replace"] > 0:
-            print(f"- ♻️ **Replacing** {counts['replace']} resource(s)")
-        if counts["delete"] > 0:
-            print(f"- 🗑️ **Deleting** {counts['delete']} resource(s)")
-        print("")
+    action_emojis = {
+        "create": "✨ Create",
+        "update": "🔄 Update",
+        "replace": "♻️ Replace",
+        "delete": "🗑️ Delete"
+    }
+
+    for cat, actions in categories.items():
+        for action_key, resources in actions.items():
+            if resources:
+                count = len(resources)
+                action_text = f"{action_emojis[action_key]} ({count})"
+                # Format resources list nicely, truncate if too long
+                res_list_str = ", ".join([f"`{r}`" for r in resources])
+                if len(res_list_str) > 200:
+                    res_list_str = res_list_str[:197] + "..."
+                
+                print(f"| **{cat}** | {action_text} | {region} | {res_list_str} |")
+
+    print("\n---\n")
+    print("### ✅ Pre-Deployment Best Practice Checklist")
+    print("Before approving this PR, please verify the following:")
+    print("- [ ] **Cost Impact:** Have these new resources been budgeted for this environment?")
+    print("- [ ] **Security:** Are there any new public endpoints or overly permissive IAM roles being created?")
+    print("- [ ] **Compliance:** Does this change align with our Checkov/security compliance tracker?")
+    print("- [ ] **Downtime:** Will any of these updates (like database engine upgrades or cluster replacements) cause application downtime?")
+    print("- [ ] **Dependencies:** Are there any external dependencies (like DNS cutovers or third-party integrations) required after this applies?")
 
 if __name__ == "__main__":
     main()
