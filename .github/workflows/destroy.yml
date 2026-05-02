@@ -1,0 +1,147 @@
+name: Safe Terraform Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_destroy:
+        description: 'Type "DESTROY" to confirm deletion of ALL infrastructure'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+env:
+  AWS_REGION: us-east-1
+  TF_IN_AUTOMATION: true
+  # SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+jobs:
+  terraform-destroy:
+    name: Destroy Infrastructure
+    runs-on: ubuntu-latest
+    # This requires manual approval in GitHub before the job starts if you map it to the 'prod' environment
+    environment: prod
+    defaults:
+      run:
+        working-directory: kyc-terraform/environments/prod
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Verify Destroy Confirmation
+        run: |
+          if [ "${{ inputs.confirm_destroy }}" != "DESTROY" ]; then
+            echo "❌ Error: You must type 'DESTROY' exactly to confirm infrastructure deletion."
+            echo "This is a safety measure to prevent accidental destruction."
+            exit 1
+          fi
+          echo "✅ Destroy confirmation verified"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.7
+
+      - name: Terraform Init
+        run: bash ../../scripts/tf-init.sh
+
+      - name: Terraform Destroy Plan
+        run: |
+          echo "📋 Generating destroy plan..."
+          terraform plan -destroy -input=false -no-color -out=destroy.plan > destroy_plan.txt
+          
+      - name: Output Destroy Plan Summary
+        run: |
+          echo "### 🗑️ Resources to be Destroyed" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>View Plan</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat destroy_plan.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+      - name: Terraform Destroy
+        id: destroy
+        run: |
+          echo "🗑️ Destroying infrastructure..."
+          terraform apply -destroy -auto-approve -input=false destroy.plan | tee destroy_output.txt
+        continue-on-error: true
+
+      - name: Create Destroy Report Issue
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let destroyOutput = '';
+            try {
+              destroyOutput = fs.readFileSync('kyc-terraform/environments/prod/destroy_output.txt', 'utf8');
+            } catch (e) {
+              destroyOutput = 'No output captured';
+            }
+
+            const success = '${{ steps.destroy.outcome }}' === 'success';
+            const title = success ? '✅ Infrastructure Destroyed' : '❌ Infrastructure Destroy Failed';
+
+            const body = `### Infrastructure Destruction Report
+
+            **Status:** ${success ? '✅ Success' : '❌ Failed'}
+            **Triggered by:** @${{ github.actor }}
+            **Workflow Run:** [View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            <details>
+            <summary>Destroy Output</summary>
+
+            \`\`\`
+            ${destroyOutput.slice(0, 60000)}
+            \`\`\`
+
+            </details>
+
+            ${success ? '✅ All resources have been successfully destroyed.' : '⚠️ Some resources may not have been destroyed. Please review the logs and clean up manually if needed.'}`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['destroy']
+            });
+
+      # - name: Notify Slack
+      #   if: always()
+      #   run: |
+      #     STATUS="${{ steps.destroy.outcome }}"
+      #     EMOJI=$([ "$STATUS" = "success" ] && echo "✅" || echo "❌")
+      #     STATUS_TEXT=$([ "$STATUS" = "success" ] && echo "Successfully Destroyed" || echo "Destroy Failed")
+      #
+      #     curl -X POST ${{ env.SLACK_WEBHOOK_URL }} \
+      #     -H 'Content-Type: application/json' \
+      #     -d "{
+      #       \"text\": \"$EMOJI Infrastructure $STATUS_TEXT\",
+      #       \"blocks\": [
+      #         {
+      #           \"type\": \"header\",
+      #           \"text\": {
+      #             \"type\": \"plain_text\",
+      #             \"text\": \"$EMOJI Infrastructure $STATUS_TEXT\"
+      #           }
+      #         }
+      #       ]
+      #     }"
+
+      - name: Final Status
+        run: |
+          if [ "${{ steps.destroy.outcome }}" != "success" ]; then
+            exit 1
+          fi
