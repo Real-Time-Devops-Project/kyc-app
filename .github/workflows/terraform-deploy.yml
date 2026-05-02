@@ -96,7 +96,7 @@ jobs:
         # Actual state check: detect AWS changes that happened outside Terraform.
         run: |
           set +e
-          terraform plan -refresh-only -detailed-exitcode -out=tfdrift
+          terraform plan -refresh-only -detailed-exitcode -input=false -out=tfdrift
           exit_code=$?
           set -e
           if [ "$exit_code" -eq 0 ]; then
