@@ -128,6 +128,12 @@
 - **Lesson:** Always run `terraform fmt` locally before pushing — manual alignment guesswork causes subtle failures
 - **Status:** ✅ Resolved
 
+### 6.5 Terraform Validate — Circular Dependency
+- **Error:** `Cycle: module.security.aws_security_group.eks_cluster, module.security.aws_security_group.eks_nodes`
+- **Cause:** `eks_cluster` SG had inline ingress referencing `eks_nodes` SG, and `eks_nodes` SG had inline ingress referencing `eks_cluster` SG — Terraform can't create either first
+- **Fix:** Moved cross-referencing ingress rules to standalone `aws_security_group_rule` resources. SGs are created first (no cross-refs), then rules are added after
+- **Status:** ✅ Resolved
+
 ---
 
 ## 7. Deployment Verification

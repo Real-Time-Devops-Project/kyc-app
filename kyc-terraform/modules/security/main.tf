@@ -4,15 +4,6 @@ resource "aws_security_group" "eks_cluster" {
   description = "Security group for EKS Cluster Control Plane"
   vpc_id      = var.vpc_id_app
 
-  # Allow nodes to reach the API server
-  ingress {
-    description     = "Allow worker nodes to reach the API server"
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    security_groups = [aws_security_group.eks_nodes.id]
-  }
-
   egress {
     from_port   = 0
     to_port     = 0
@@ -47,18 +38,32 @@ resource "aws_security_group" "eks_nodes" {
     self        = true
   }
 
-  # Allow control plane to communicate with nodes
-  ingress {
-    description     = "Control plane to worker nodes"
-    from_port       = 1025
-    to_port         = 65535
-    protocol        = "tcp"
-    security_groups = [aws_security_group.eks_cluster.id]
-  }
-
   tags = {
     Name = "${var.environment}-eks-node-sg"
   }
+}
+
+# --- Cross-references as standalone rules to avoid cycle ---
+# Cluster SG: allow inbound 443 from nodes
+resource "aws_security_group_rule" "cluster_ingress_from_nodes" {
+  type                     = "ingress"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  description              = "Allow worker nodes to reach the API server"
+  security_group_id        = aws_security_group.eks_cluster.id
+  source_security_group_id = aws_security_group.eks_nodes.id
+}
+
+# Node SG: allow inbound from control plane
+resource "aws_security_group_rule" "nodes_ingress_from_cluster" {
+  type                     = "ingress"
+  from_port                = 1025
+  to_port                  = 65535
+  protocol                 = "tcp"
+  description              = "Control plane to worker nodes"
+  security_group_id        = aws_security_group.eks_nodes.id
+  source_security_group_id = aws_security_group.eks_cluster.id
 }
 
 # --- Database Security Group ---
@@ -108,7 +113,7 @@ resource "aws_security_group" "mgmt" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["10.0.0.0/8"] # Internal network only
+    cidr_blocks = ["10.0.0.0/8"]
   }
 
   egress {
@@ -131,7 +136,7 @@ resource "aws_security_group" "proxy" {
 
   ingress {
     description = "Proxy port from internal network"
-    from_port   = 3128 # Standard Proxy Port
+    from_port   = 3128
     to_port     = 3128
     protocol    = "tcp"
     cidr_blocks = ["10.0.0.0/8"]
