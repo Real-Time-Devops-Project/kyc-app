@@ -1,0 +1,20 @@
+policies:
+  - name: s3-auto-remediate-unencrypted-buckets
+    resource: s3
+    description: |
+      Detects any S3 bucket creation and automatically turns on default 
+      AES256 server-side encryption if no encryption was specified.
+    mode:
+      # This runs as an AWS Lambda function triggered by AWS CloudTrail events
+      type: cloudtrail
+      events:
+        - source: s3.amazonaws.com
+          event: CreateBucket
+          ids: "requestParameters.bucketName"
+      role: arn:aws:iam::{account_id}:role/CustodianExecutionRole
+    filters:
+      - type: bucket-encryption
+        state: False
+    actions:
+      - type: set-bucket-encryption
+        crypto: AES256
