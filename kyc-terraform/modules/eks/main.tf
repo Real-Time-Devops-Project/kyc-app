@@ -49,6 +49,13 @@ resource "aws_iam_role_policy_attachment" "ec2_container_registry_read_only" {
   role       = aws_iam_role.eks_nodes.name
 }
 
+# --- KMS Key for EKS Secrets Encryption ---
+resource "aws_kms_key" "eks_secrets" {
+  description             = "KMS key for EKS Kubernetes secrets encryption"
+  deletion_window_in_days = 14
+  enable_key_rotation     = true
+}
+
 # --- EKS Cluster ---
 resource "aws_eks_cluster" "main" {
   name     = var.cluster_name
@@ -60,6 +67,14 @@ resource "aws_eks_cluster" "main" {
     security_group_ids      = var.security_group_ids
     endpoint_private_access = true
     endpoint_public_access  = false
+  }
+
+  # CKV_AWS_58: Encrypt Kubernetes secrets at rest
+  encryption_config {
+    provider {
+      key_arn = aws_kms_key.eks_secrets.arn
+    }
+    resources = ["secrets"]
   }
 
   # Enable control plane logging for security auditing and troubleshooting.

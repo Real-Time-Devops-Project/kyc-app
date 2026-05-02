@@ -52,3 +52,11 @@ variable "enable_postgres_iam_auth" {
   type        = bool
   default     = false
 }
+
+variable "redis_auth_token" {
+  description = "Auth token for ElastiCache Redis (must be 16-128 chars)"
+  type        = string
+  sensitive   = true
+  default     = null
+  nullable    = true
+}

@@ -134,12 +134,28 @@
 - **Fix:** Moved cross-referencing ingress rules to standalone `aws_security_group_rule` resources. SGs are created first (no cross-refs), then rules are added after
 - **Status:** ✅ Resolved
 
+### 6.6 Checkov IaC Security Scan Failures (9 findings)
+
+| # | Check ID | Resource | Issue | Fix |
+|---|----------|----------|-------|-----|
+| 1 | CKV_AWS_118 | `aws_db_instance.postgres` | Enhanced monitoring not enabled | Added `monitoring_interval = 60` + IAM role |
+| 2 | CKV_AWS_353 | `aws_db_instance.postgres` | Performance insights not enabled | Added `performance_insights_enabled = true` |
+| 3 | CKV_AWS_226 | `aws_db_instance.postgres` | Auto minor upgrades not enabled | Added `auto_minor_version_upgrade = true` |
+| 4 | CKV_AWS_129 | `aws_db_instance.postgres` | PostgreSQL logs not exported | Added `enabled_cloudwatch_logs_exports = ["postgresql", "upgrade"]` |
+| 5 | CKV_AWS_85 | `aws_docdb_cluster.docdb` | DocumentDB logging not enabled | Added `enabled_cloudwatch_logs_exports = ["audit", "profiler"]` |
+| 6 | CKV_AWS_182 | `aws_docdb_cluster.docdb` | Not encrypted with CMK | Created KMS key, added `kms_key_id` |
+| 7 | CKV_AWS_191 | `aws_elasticache_replication_group.redis` | Not encrypted with CMK | Shared KMS key, added `kms_key_id` |
+| 8 | CKV_AWS_31 | `aws_elasticache_replication_group.redis` | No auth token + transit encryption | Added `auth_token` variable + `transit_encryption_enabled` already set |
+| 9 | CKV_AWS_58 | `aws_eks_cluster.main` | Secrets not encrypted at rest | Created KMS key, added `encryption_config` block |
+
+- **Status:** ✅ All 9 resolved
+
 ---
 
 ## 7. Deployment Verification
 
-- [ ] `terraform fmt -check` passes
-- [ ] `terraform validate` passes
+- [x] `terraform fmt -check` passes
+- [x] `terraform validate` passes
 - [ ] Checkov IaC scan passes (or acceptable findings only)
 - [ ] PR triggers `terraform plan` and posts summary on PR
 - [ ] Merge to main triggers plan → waits for `prod` approval → applies

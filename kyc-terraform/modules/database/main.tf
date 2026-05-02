@@ -1,3 +1,10 @@
+# --- KMS Keys ---
+resource "aws_kms_key" "database" {
+  description             = "KMS key for database encryption (DocDB, ElastiCache)"
+  deletion_window_in_days = 14
+  enable_key_rotation     = true
+}
+
 # --- RDS PostgreSQL ---
 resource "aws_db_subnet_group" "rds" {
   name       = "rds-subnet-group"
@@ -6,6 +13,26 @@ resource "aws_db_subnet_group" "rds" {
   tags = {
     Name = "rds-subnet-group"
   }
+}
+
+resource "aws_iam_role" "rds_enhanced_monitoring" {
+  name = "rds-enhanced-monitoring-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = "sts:AssumeRole"
+      Principal = {
+        Service = "monitoring.rds.amazonaws.com"
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "rds_enhanced_monitoring" {
+  role       = aws_iam_role.rds_enhanced_monitoring.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole"
 }
 
 resource "aws_db_instance" "postgres" {
@@ -31,6 +58,19 @@ resource "aws_db_instance" "postgres" {
   skip_final_snapshot                 = false
   final_snapshot_identifier           = "app-postgres-db-final-snapshot"
 
+  # CKV_AWS_118: Enhanced Monitoring
+  monitoring_interval = 60
+  monitoring_role_arn = aws_iam_role.rds_enhanced_monitoring.arn
+
+  # CKV_AWS_353: Performance Insights
+  performance_insights_enabled = true
+
+  # CKV_AWS_226: Auto minor version upgrade
+  auto_minor_version_upgrade = true
+
+  # CKV_AWS_129: Enable PostgreSQL logging
+  enabled_cloudwatch_logs_exports = ["postgresql", "upgrade"]
+
   tags = {
     Name = "app-postgres-db"
   }
@@ -51,11 +91,15 @@ resource "aws_docdb_cluster" "docdb" {
   db_subnet_group_name        = aws_docdb_subnet_group.docdb.name
   vpc_security_group_ids      = var.security_group_ids
   storage_encrypted           = true
+  kms_key_id                  = aws_kms_key.database.arn # CKV_AWS_182: CMK encryption
   backup_retention_period     = 7
   preferred_backup_window     = "03:00-04:00"
   deletion_protection         = true
   skip_final_snapshot         = false
   final_snapshot_identifier   = "app-docdb-cluster-final-snapshot"
+
+  # CKV_AWS_85: Enable DocumentDB logging
+  enabled_cloudwatch_logs_exports = ["audit", "profiler"]
 
   tags = {
     Name = "app-docdb-cluster"
@@ -84,5 +128,7 @@ resource "aws_elasticache_replication_group" "redis" {
   subnet_group_name          = aws_elasticache_subnet_group.redis.name
   security_group_ids         = var.security_group_ids
   at_rest_encryption_enabled = true
-  transit_encryption_enabled = true
+  kms_key_id                 = aws_kms_key.database.arn # CKV_AWS_191: CMK encryption
+  transit_encryption_enabled = true                      # CKV_AWS_31: Encrypt in transit
+  auth_token                 = var.redis_auth_token      # CKV_AWS_31: Auth token
 }
