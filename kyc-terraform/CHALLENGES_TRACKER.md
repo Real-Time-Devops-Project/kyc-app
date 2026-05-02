@@ -163,7 +163,28 @@
 
 - **Status:** ✅ All 23 resolved
 
-### 6.7 Architecture-Specific Checkov Exceptions (16 Findings)
+### 6.7 CI/CD Pipeline Hanging & Terraform State Lock
+- **Error:** GitHub Actions pipeline hung indefinitely on `terraform plan -refresh-only`, which eventually caused a `ConditionalCheckFailedException` state lock error when the run timed out or was cancelled.
+- **Cause:** `terraform.tfvars` was globally ignored in `.gitignore`, causing the CI/CD pipeline to interactively prompt for `var.key_name` because it had no default value. Since CI/CD is non-interactive, the process hung.
+- **Fix:** 
+  1. Updated `.gitignore` to specifically allow `!kyc-terraform/environments/**/*.tfvars`.
+  2. Added `-input=false` to the drift detection step in `.github/workflows/terraform-deploy.yml` to fail fast instead of hanging.
+  3. Released the orphaned state lock from the `terraform-locks` DynamoDB table via AWS Console / `terraform force-unlock`.
+- **Status:** ✅ Resolved
+
+### 6.8 S3 Lifecycle Configuration Deprecation Warning
+- **Error:** `Warning: Invalid Attribute Combination ... No attribute specified when one (and only one) of [rule[0].filter,rule[0].prefix] is required`
+- **Cause:** Terraform AWS provider requires explicit indication if an S3 lifecycle rule applies to the whole bucket.
+- **Fix:** Added an empty `filter {}` block to the `aws_s3_bucket_lifecycle_configuration` resource in `management/main.tf`.
+- **Status:** ✅ Resolved
+
+### 6.9 Terraform Refresh-Only Empty Tuple Error
+- **Error:** `Error: Invalid index ... module.networking.mgmt_subnet_ids is empty tuple` during the `Detect drift` pipeline step.
+- **Cause:** The drift detection step uses `terraform plan -refresh-only`. Because the AWS infrastructure had never been deployed, the remote state was empty. Accessing `module.networking.mgmt_subnet_ids[0]` threw an error since the splat operator `[*]` evaluates to an empty list when the resources don't exist yet.
+- **Fix:** Wrapped the subnet reference in a `try()` fallback: `subnet_id = try(module.networking.mgmt_subnet_ids[0], "")` in `prod/main.tf`. This gracefully handles empty states during drift detection.
+- **Status:** ✅ Resolved
+
+### 6.10 Architecture-Specific Checkov Exceptions (16 Findings)
 *   **Challenge**: The Checkov scan flagged 16 additional non-applicable or false-positive issues.
 *   **Solution**: Since these configurations were deliberate architecture decisions or false positives for the AWS resources in use, we implemented inline `#checkov:skip` annotations.
 *   **Detailed Explanations**:

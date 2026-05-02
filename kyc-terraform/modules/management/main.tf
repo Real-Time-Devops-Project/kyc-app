@@ -107,6 +107,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
   rule {
     id     = "expire-old-artifacts"
     status = "Enabled"
+    filter {}
 
     expiration {
       days = 90

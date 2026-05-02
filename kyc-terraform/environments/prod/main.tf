@@ -43,7 +43,7 @@ module "database" {
 module "management" {
   source             = "../../modules/management"
   environment        = var.environment
-  subnet_id          = module.networking.mgmt_subnet_ids[0]
+  subnet_id          = try(module.networking.mgmt_subnet_ids[0], "")
   security_group_ids = [module.security.mgmt_sg_id]
   key_name           = var.key_name
 }
