@@ -121,7 +121,7 @@ resource "aws_subnet" "app_private" {
   cidr_block        = cidrsubnet(var.vpc_cidrs["app"], 8, count.index)
   availability_zone = var.availability_zones[count.index]
   tags = {
-    Name                                       = "${var.environment}-app-private-${count.index + 1}"
+    Name                                        = "${var.environment}-app-private-${count.index + 1}"
     "kubernetes.io/role/internal-elb"           = "1"
     "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   }

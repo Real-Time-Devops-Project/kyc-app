@@ -115,25 +115,17 @@
 - **AWS Warning:** Wildcard `*` in `sub` is too broad — replaced with explicit branch list (main, qa, dev, pull_request)
 - **Status:** ✅ Resolved
 
-### 6.3 Terraform Format Check Failed
+### 6.3 Terraform Format Check Failed (Round 1)
 - **Error:** `terraform fmt -check -recursive` flagged `backend.tf` and `networking/main.tf`
 - **Cause:** Extra alignment padding in `backend.tf` attributes and inconsistent tag alignment in `networking/main.tf` subnet tags
 - **Fix:** Reformatted both files to match `terraform fmt` canonical style
-Run terraform fmt -check -recursive
-  terraform fmt -check -recursive
-  shell: /usr/bin/bash -e {0}
-  env:
-    AWS_REGION: us-east-1
-    TF_IN_AUTOMATION: true
-    AWS_DEFAULT_REGION: us-east-1
-    AWS_ACCESS_KEY_ID: ***
-    AWS_SECRET_ACCESS_KEY: ***
-    AWS_SESSION_TOKEN: ***
-    TERRAFORM_CLI_PATH: /home/runner/work/_temp/927c305f-8f28-4cfa-ab21-3a85d3ccb6b9
-environments/prod/backend.tf
-modules/networking/main.tf
-Error: Terraform exited with code 3.
-Error: Process completed with exit code 1.
+- **Status:** ✅ Resolved
+
+### 6.4 Terraform Format Check Failed (Round 2)
+- **Error:** `terraform fmt -check -recursive` still flagged `networking/main.tf`
+- **Cause:** 1 space off — `Name` tag in `app_private` subnet needed 1 more space to align `=` with the longest key (`kubernetes.io/cluster/${var.cluster_name}`)
+- **Fix:** Downloaded Terraform 1.5.7 locally, ran `terraform fmt` to auto-fix, verified with `terraform fmt -check`
+- **Lesson:** Always run `terraform fmt` locally before pushing — manual alignment guesswork causes subtle failures
 - **Status:** ✅ Resolved
 
 ---
