@@ -62,8 +62,9 @@ resource "aws_db_instance" "postgres" {
   monitoring_interval = 60
   monitoring_role_arn = aws_iam_role.rds_enhanced_monitoring.arn
 
-  # CKV_AWS_353: Performance Insights
-  performance_insights_enabled = true
+  # CKV_AWS_353 + CKV_AWS_354: Performance Insights with CMK encryption
+  performance_insights_enabled    = true
+  performance_insights_kms_key_id = aws_kms_key.database.arn
 
   # CKV_AWS_226: Auto minor version upgrade
   auto_minor_version_upgrade = true
