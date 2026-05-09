@@ -1,0 +1,73 @@
+name: Deploy Cloud Custodian Policies
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'kyc-custodian/policies/**'
+  pull_request:
+    paths:
+      - 'kyc-custodian/policies/**'
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  validate-policies:
+    name: Validate Custodian Policies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Cloud Custodian
+        run: pip install c7n
+
+      - name: Validate Policies
+        run: |
+          for policy in kyc-custodian/policies/*.yml; do
+            echo "Validating $policy..."
+            custodian validate $policy
+          done
+
+  deploy-policies:
+    name: Deploy to AWS
+    needs: validate-policies
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Cloud Custodian
+        run: pip install c7n
+
+      - name: Deploy Policies
+        run: |
+          # The -s flag specifies the output directory for deployment logs
+          mkdir -p output
+          for policy in kyc-custodian/policies/*.yml; do
+            echo "Deploying $policy..."
+            custodian run -s output $policy
+          done

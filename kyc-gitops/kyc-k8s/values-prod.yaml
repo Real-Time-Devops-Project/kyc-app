@@ -1,0 +1,19 @@
+# PROD Environment Values
+environment: prod
+replicaCount: 3
+serviceAccount:
+  annotations:
+    # Set this to terraform output kyc_app_irsa_role_arn before enabling IAM DB auth.
+    eks.amazonaws.com/role-arn: ""
+database:
+  postgres:
+    iamAuthEnabled: false
+  docdb:
+    mongoUriSecretArn: ""
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi

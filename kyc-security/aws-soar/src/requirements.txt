@@ -1,0 +1,2 @@
+# No external dependencies required for AWS Lambda.
+# Standard library (json, logging, re, gzip, base64) is sufficient.

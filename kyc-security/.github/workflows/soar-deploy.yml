@@ -1,0 +1,38 @@
+# name: Deploy AWS SOAR Lambda
+# 
+# on:
+#   push:
+#     branches:
+#       - main
+#     paths:
+#       - 'aws-soar/**'
+# 
+# permissions:
+#   id-token: write
+#   contents: read
+# 
+# env:
+#   AWS_REGION: us-east-1
+# 
+# jobs:
+#   deploy-soar:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+# 
+#       - name: Configure AWS credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+#           aws-region: ${{ env.AWS_REGION }}
+# 
+#       - name: Zip Lambda Package
+#         working-directory: aws-soar/src
+#         run: zip -r ../lambda_function.zip .
+# 
+#       - name: Deploy to AWS Lambda
+#         run: |
+#           aws lambda update-function-code \
+#             --function-name kyc-soar-formatter \
+#             --zip-file fileb://aws-soar/lambda_function.zip

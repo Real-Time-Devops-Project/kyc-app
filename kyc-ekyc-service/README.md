@@ -1,47 +1,49 @@
-# eKYC Microservice
+# ⚙️ KYC Electronic KYC (eKYC) Service
 
-This repository constitutes the backend service for Electronic Know Your Customer (eKYC) functionality.
+Welcome to the backend repository for the Electronic KYC (eKYC) microservice.
 
-## Technologies
+## 🎯 Repository Purpose
+This repository contains the business logic for the fully automated Electronic KYC workflow. It is responsible for parsing digitally submitted documents, extracting PII, interacting with 3rd-party identity verification APIs, and persisting the verification status to the database.
 
-- Node.js (Runtime)
-- Express (Web Framework)
-- Jest (Testing)
+## 🛠️ Technology Stack
+- **Framework**: Node.js / Python / Java (Backend API)
+- **Database Connection**: PostgreSQL/MySQL
+- **Containerization**: Docker
+- **CI/CD**: GitHub Actions & Jenkins
 
-## Prerequisites
+### Key Resources Managed:
+- **Application Source Code**: RESTful API endpoints and business logic.
+- **Dockerfile**: The container definition to package the microservice for Kubernetes execution.
 
-- Node.js (v18+)
-- MongoDB/PostgreSQL (as applicable)
+---
 
-## Getting Started
+## 🔑 Environment Variables & Secrets
 
-1.  Navigate to the directory:
-    ```bash
-    cd kyc-ekyc-service
-    ```
-2.  Install dependencies:
-    ```bash
-    npm install
-    ```
-3.  Run the service:
-    ```bash
-    npm start
-    ```
+Because this microservice interacts with secure databases and external APIs, it requires several environment variables.
 
-## Development
+### 1. Database Credentials
+- `DB_HOST`: The endpoint of the Amazon RDS database.
+- `DB_PORT`: The database port (e.g., 5432).
+- `DB_USER` & `DB_PASS`: The authentication credentials.
+- **How to create**: These are created securely in AWS Secrets Manager by the `kyc-infrastructure` Terraform code. 
+- **Where to use it**: In Kubernetes, the External Secrets Operator fetches these from AWS and injects them as environment variables into the Pod. Do not store these locally.
 
-To run with nodemon:
-```bash
-npm run dev
-```
+### 2. AWS ECR Deployment Variables
+To push the built Docker image to AWS Elastic Container Registry (ECR), the CI/CD pipeline requires:
+- `AWS_ROLE_TO_ASSUME`: GitHub Secret containing the IAM Role ARN.
+- `ECR_REPOSITORY`: The name of the ECR repository (e.g., `kyc-ekyc-service`).
 
-## Docker
+---
 
-Build the Docker image:
-```bash
-docker build -t kyc-ekyc-service:latest .
-```
+## 🚀 CI/CD Pipeline & Workflow
 
-## CI/CD 
+This repository uses a standard Continuous Integration pipeline:
 
-Includes `Jenkinsfile` for CI pipeline. Ensure SonarQube, Trivy, and related tools are configured on your Jenkins server.
+1. **Build & Test (PR)**: 
+   - When a PR is opened, the code runs unit tests and static analysis.
+2. **Docker Build & Push (Merge)**:
+   - When code is merged to `main`, the `docker-build.yml` workflow triggers.
+   - It builds the Docker container.
+   - It pushes the container image to AWS ECR with a unique tag (usually the Git SHA).
+3. **Deployment Handoff**:
+   - Once the image is pushed, a developer must update the `image.tag` value in the `kyc-gitops` repository to deploy the new version to Kubernetes via ArgoCD.

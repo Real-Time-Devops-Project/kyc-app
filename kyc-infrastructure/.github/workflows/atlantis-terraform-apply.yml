@@ -1,0 +1,106 @@
+name: Atlantis Self Serve - Apply
+
+on:
+  #pull_request:
+    #branches:
+     # - main
+     # - dev
+    #types:
+     # - labeled
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: atlantis-terraform-apply-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  TF_IN_AUTOMATION: true
+
+jobs:
+  terraform-apply:
+    name: Terraform Apply
+    # Only run if the 'self-serve-apply' label was just added
+    if: github.event.label.name == 'self-serve-apply'
+    runs-on: ubuntu-latest
+    environment: prod
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.7
+
+      - name: Terraform Init
+        working-directory: kyc-terraform/environments/prod
+        run: bash ../../scripts/tf-init.sh
+
+      - name: Run Terraform Apply
+        id: apply
+        working-directory: kyc-terraform/environments/prod
+        continue-on-error: true
+        run: |
+          echo "Applying Terraform changes..."
+          terraform apply -auto-approve -input=false -no-color | tee apply_output.txt
+
+      - name: Comment Apply Status on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let applyOutput = '';
+            try {
+              applyOutput = fs.readFileSync('kyc-terraform/environments/prod/apply_output.txt', 'utf8');
+            } catch (e) {
+              applyOutput = 'No output captured.';
+            }
+            
+            const success = '${{ steps.apply.outcome }}' === 'success';
+            const marker = '<!-- atlantis-apply-summary -->';
+            const statusIcon = success ? '✅' : '❌';
+            const statusText = success ? 'Successfully Applied' : 'Failed to Apply';
+            
+            const body = `${marker}\n## ${statusIcon} Atlantis Self-Serve Apply: ${statusText}\n\n<details><summary>View Logs</summary>\n\n\`\`\`terraform\n${applyOutput.slice(-60000)}\n\`\`\`\n</details>`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+
+      - name: Remove self-serve-apply label
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                name: 'self-serve-apply'
+              });
+              console.log("Successfully removed 'self-serve-apply' label.");
+            } catch (error) {
+              console.log("Label might already be removed: " + error.message);
+            }
+
+      - name: Terraform Apply Status
+        if: steps.apply.outcome == 'failure'
+        run: |
+          echo "::error::Terraform Apply Failed!"
+          exit 1

@@ -1,0 +1,37 @@
+# Default Values
+environment: dev
+replicaCount: 1
+
+image:
+  repository: kyc-app
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+serviceAccount:
+  create: true
+  name: kyc-app-sa
+  annotations: {}
+
+aws:
+  region: us-east-1
+
+database:
+  postgres:
+    iamAuthEnabled: false
+  docdb:
+    mongoUriSecretArn: ""
+
+ingress:
+  enabled: false
+
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi

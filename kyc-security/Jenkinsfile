@@ -1,0 +1,54 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = 'us-east-1'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Validate Cloud Custodian Policies') {
+            steps {
+                dir('kyc-custodian') {
+                    sh 'custodian validate policies/*.yml'
+                }
+            }
+        }
+
+        stage('Deploy Cloud Custodian') {
+            when {
+                branch 'main'
+            }
+            steps {
+                dir('kyc-custodian') {
+                    sh 'mkdir -p output'
+                    sh 'custodian run -s output policies/*.yml'
+                }
+            }
+        }
+
+        stage('Package SOAR Lambda') {
+            steps {
+                dir('aws-soar/src') {
+                    sh 'zip -r ../lambda_function.zip .'
+                }
+            }
+        }
+
+        stage('Deploy SOAR Lambda') {
+            when {
+                branch 'main'
+            }
+            steps {
+                dir('aws-soar') {
+                    sh 'aws lambda update-function-code --function-name kyc-soar-formatter --zip-file fileb://lambda_function.zip'
+                }
+            }
+        }
+    }
+}

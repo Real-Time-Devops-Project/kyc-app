@@ -11,21 +11,49 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3002;
 
-// Postgres Connection (Status)
-const pgPool = new Pool({
-    host: process.env.PG_HOST,
-    user: process.env.PG_USER,
-    password: process.env.PG_PASSWORD,
-    database: process.env.PG_DATABASE,
-    port: process.env.PG_PORT || 5432,
-});
+const isEnabled = value => String(value).toLowerCase() === 'true';
 
-// MongoDB Connection (Details)
-mongoose.connect(process.env.MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-}).then(() => console.log('Connected to MongoDB'))
-    .catch(err => console.error('MongoDB connection error:', err));
+async function readSecretValue(secretArn) {
+    const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
+    const client = new SecretsManagerClient({ region: process.env.AWS_REGION });
+    const response = await client.send(new GetSecretValueCommand({ SecretId: secretArn }));
+    return response.SecretString;
+}
+
+async function resolveMongoUri() {
+    if (!process.env.MONGO_URI_SECRET_ARN) {
+        return process.env.MONGO_URI;
+    }
+
+    const secretString = await readSecretValue(process.env.MONGO_URI_SECRET_ARN);
+    const parsedSecret = JSON.parse(secretString);
+    return parsedSecret.mongo_uri || parsedSecret.MONGO_URI || parsedSecret.uri || parsedSecret.connectionString;
+}
+
+function createPostgresPool() {
+    const port = Number(process.env.PG_PORT || 5432);
+    const useIamAuth = isEnabled(process.env.PG_IAM_AUTH_ENABLED);
+
+    return new Pool({
+        host: process.env.PG_HOST,
+        user: process.env.PG_USER,
+        password: useIamAuth ? async () => {
+            const { Signer } = require('@aws-sdk/rds-signer');
+            const signer = new Signer({
+                hostname: process.env.PG_HOST,
+                port,
+                username: process.env.PG_USER,
+                region: process.env.AWS_REGION,
+            });
+            return signer.getAuthToken();
+        } : process.env.PG_PASSWORD,
+        database: process.env.PG_DATABASE,
+        port,
+        ssl: useIamAuth || isEnabled(process.env.PG_SSL)
+            ? { rejectUnauthorized: isEnabled(process.env.PG_SSL_REJECT_UNAUTHORIZED) }
+            : undefined,
+    });
+}
 
 const VkycSchema = new mongoose.Schema({
     sessionId: String,
@@ -41,7 +69,8 @@ const redisClient = createClient({
     url: process.env.REDIS_URL
 });
 redisClient.on('error', err => console.error('Redis Client Error', err));
-redisClient.connect().then(() => console.log('Connected to Redis'));
+
+let pgPool;
 
 // Routes
 app.get('/health', (req, res) => {
@@ -102,6 +131,25 @@ app.post('/api/vkyc/complete', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`vKYC Service running on port ${PORT}`);
+async function start() {
+    pgPool = createPostgresPool();
+
+    const mongoUri = await resolveMongoUri();
+    await mongoose.connect(mongoUri, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+    });
+    console.log('Connected to MongoDB');
+
+    await redisClient.connect();
+    console.log('Connected to Redis');
+
+    app.listen(PORT, () => {
+        console.log(`vKYC Service running on port ${PORT}`);
+    });
+}
+
+start().catch(err => {
+    console.error('Service startup failed:', err);
+    process.exit(1);
 });

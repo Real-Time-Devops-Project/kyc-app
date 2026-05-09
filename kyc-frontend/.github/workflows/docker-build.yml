@@ -1,0 +1,56 @@
+name: DevSecOps Build & Push - Frontend
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  devsecops-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: 🛡️ SCA - NPM Audit (Dependency Vulnerability Scan)
+        run: npm audit --audit-level=high
+
+      - name: 🛡️ SAST - SonarQube Quality Gate
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        continue-on-error: true # Ensure token is set before making strict
+
+      - name: Run Unit Tests
+        run: npm test
+
+      - name: Build Docker Image
+        run: docker build -t kyc-frontend:${{ github.sha }} .
+
+      - name: 🛡️ Container Security - Trivy Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'kyc-frontend:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Push to AWS ECR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          echo "Passed all DevSecOps Gates!"
+          echo "Authenticating to ECR and pushing kyc-frontend:${{ github.sha }}..."
+          # docker push aws-account-id.dkr.ecr.region.amazonaws.com/kyc-frontend:${{ github.sha }}

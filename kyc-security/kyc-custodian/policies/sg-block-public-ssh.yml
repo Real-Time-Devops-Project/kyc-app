@@ -1,0 +1,23 @@
+policies:
+  - name: sg-auto-remediate-public-ssh
+    resource: security-group
+    description: |
+      Detects any Security Group allowing SSH (port 22) from 0.0.0.0/0
+      and automatically deletes that specific rule to remediate the vulnerability.
+    mode:
+      # This runs as an AWS Lambda function triggered by AWS CloudTrail events
+      type: cloudtrail
+      events:
+        - source: ec2.amazonaws.com
+          event: AuthorizeSecurityGroupIngress
+          ids: "requestParameters.groupId"
+      role: arn:aws:iam::{account_id}:role/CustodianExecutionRole
+    filters:
+      - type: ingress
+        IpProtocol: tcp
+        Ports: [22]
+        Cidr:
+          value: "0.0.0.0/0"
+    actions:
+      - type: remove-permissions
+        ingress: matched

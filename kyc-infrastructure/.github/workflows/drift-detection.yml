@@ -1,0 +1,161 @@
+name: Scheduled Drift Detection
+
+on:
+ # schedule:
+  #  - cron: "0 8 * * *" # Runs daily at 8am UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # Required for GitHub OIDC
+  issues: write     # Required to create drift issues
+
+env:
+  AWS_REGION: us-east-1
+  TF_IN_AUTOMATION: true
+  # SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }} # Uncomment when Slack is configured
+
+jobs:
+  detect-drift:
+    name: Detect Infrastructure Drift
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kyc-terraform/environments/prod
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.7
+
+      - name: Terraform Init
+        run: bash ../../scripts/tf-init.sh
+
+      - name: Terraform Plan (Drift Detection)
+        id: plan
+        run: |
+          set +e
+          terraform plan -detailed-exitcode -input=false -no-color > plan_output.txt 2>&1
+          EXIT_CODE=$?
+          echo "exitcode=$EXIT_CODE" >> $GITHUB_OUTPUT
+          cat plan_output.txt
+          exit 0  # We handle the failure gracefully below
+
+      - name: Report Drift to GitHub Issues
+        if: steps.plan.outputs.exitcode == '2'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync('kyc-terraform/environments/prod/plan_output.txt', 'utf8');
+            const body = `### 🚨 Infrastructure Drift Detected
+
+            Terraform has detected changes in the AWS environment that differ from the current state/configuration.
+            **No auto-remediation has been applied.** Please review the drift below and either update the code to match reality, or run a manual apply to revert the drift.
+
+            <details>
+            <summary>Show Drift Plan</summary>
+
+            \`\`\`terraform
+            ${planOutput.slice(0, 60000)}
+            \`\`\`
+
+            </details>
+            `;
+
+            // Check for existing drift issues
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              creator: 'github-actions[bot]',
+              labels: 'drift-detection'
+            });
+
+            const existingIssue = issues.data.find(issue => issue.title.includes(`Terraform Drift Detected`));
+
+            if (existingIssue) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existingIssue.number,
+                body: `## New Drift Detected\n\n${body}`
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `🚨 Terraform Drift Detected`,
+                body: body,
+                labels: ['drift-detection']
+              });
+            }
+
+      # - name: Notify Slack - Drift Detected
+      #   if: steps.plan.outputs.exitcode == '2'
+      #   run: |
+      #     curl -X POST ${{ env.SLACK_WEBHOOK_URL }} \
+      #     -H 'Content-Type: application/json' \
+      #     -d '{
+      #       "text": "🚨 Terraform Drift Detected",
+      #       "blocks": [
+      #         {
+      #           "type": "header",
+      #           "text": {
+      #             "type": "plain_text",
+      #             "text": "🚨 Infrastructure Drift Detected"
+      #           }
+      #         },
+      #         {
+      #           "type": "section",
+      #           "text": {
+      #             "type": "mrkdwn",
+      #             "text": "*Repository:* ${{ github.repository }}\n*Workflow:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Details>\n\nManual review required!"
+      #           }
+      #         }
+      #       ]
+      #     }'
+
+      - name: Close Old Drift Issues
+        if: steps.plan.outputs.exitcode == '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'drift-detection'
+            });
+
+            for (const issue of issues.data) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: '✅ No drift detected. Infrastructure is now in sync. Closing issue.'
+              });
+              
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed'
+              });
+            }
+
+      - name: Fail the build if drift exists
+        if: steps.plan.outputs.exitcode == '2'
+        run: |
+          echo "::error::Drift detected! Check the generated GitHub Issue."
+          exit 1

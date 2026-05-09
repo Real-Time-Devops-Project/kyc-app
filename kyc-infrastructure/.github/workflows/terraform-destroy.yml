@@ -1,0 +1,69 @@
+name: Terraform Destroy
+
+# Destroy is manual only and requires a typed confirmation.
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type destroy-prod to confirm production destroy'
+        required: true
+        type: string
+
+permissions:
+  # id-token is required for GitHub OIDC authentication into AWS.
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+  TF_IN_AUTOMATION: true
+
+jobs:
+  destroy:
+    name: Destroy Production
+    runs-on: ubuntu-latest
+    if: inputs.confirmation == 'destroy-prod'
+    # Use a protected environment so GitHub can require manual reviewers before destroy.
+    environment: prod-destroy
+    defaults:
+      run:
+        # Destroy operates from the same prod Terraform root module as deployment.
+        working-directory: kyc-terraform/environments/prod
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        # Assumes an AWS IAM role trusted by this repository through GitHub OIDC.
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.7
+
+      - name: Terraform init
+        # Connect to providers and remote state before planning destroy.
+        # tf-init.sh auto-detects branch and sets the correct S3 backend key.
+        run: bash ../../scripts/tf-init.sh
+
+      - name: Terraform destroy plan
+        # Generate and save the destroy plan so reviewers can inspect what will be removed.
+        run: |
+          terraform plan -destroy -input=false -out=tfdestroy
+          terraform show -no-color tfdestroy > tfdestroy.txt
+
+      - name: Upload destroy plan
+        # Preserve the destroy plan for approval evidence and audit.
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-destroy-plan
+          path: kyc-terraform/environments/prod/tfdestroy.txt
+
+      - name: Terraform destroy
+        # Apply only the reviewed destroy plan.
+        run: terraform apply -input=false -auto-approve tfdestroy
