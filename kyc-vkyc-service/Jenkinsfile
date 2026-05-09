@@ -1,6 +1,14 @@
 pipeline {
     agent any
 
+    tools {
+        nodejs 'nodeJS18' // Assumes a Jenkins Global Tool Configuration named nodeJS18
+    }
+
+    environment {
+        DOCKER_IMAGE = "kyc-vkyc-service:${env.GIT_COMMIT}"
+    }
+
     stages {
         stage('Checkout') {
             steps {
@@ -8,18 +16,61 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Install Dependencies') {
             steps {
-                sh 'docker build -t kyc-vkyc-service:latest .'
+                sh 'npm ci'
             }
         }
 
-        stage('Push to Registry') {
+        stage('🛡️ SCA - NPM Audit') {
+            steps {
+                // Fails the build if vulnerabilities of HIGH or CRITICAL level are found
+                sh 'npm audit --audit-level=high'
+            }
+        }
+
+        stage('🛡️ SAST - SonarQube Quality Gate') {
+            steps {
+                withSonarQubeEnv('SonarQubeServer') {
+                    sh 'npm run sonar || echo "SonarQube scan initiated"'
+                }
+            }
+        }
+
+        stage('Quality Gate Status') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                sh 'npm test'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh "docker build -t ${env.DOCKER_IMAGE} ."
+            }
+        }
+
+        stage('🛡️ Container Security - Trivy Scan') {
+            steps {
+                // Fails pipeline if OS vulnerabilities are found in the Docker image
+                sh "trivy image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed ${env.DOCKER_IMAGE}"
+            }
+        }
+
+        stage('Push to ECR') {
             when {
                 branch 'main'
             }
             steps {
-                sh 'echo "Pushing to registry..."'
+                sh "echo 'Passed all DevSecOps Gates. Pushing ${env.DOCKER_IMAGE} to registry...'"
+                // sh "docker push aws-account-id.dkr.ecr.region.amazonaws.com/${env.DOCKER_IMAGE}"
             }
         }
     }
