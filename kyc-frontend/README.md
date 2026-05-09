@@ -1,48 +1,47 @@
-# KYC Frontend Application
+# 💻 KYC Frontend Application
 
-This repository contains the frontend component of the KYC application, built using React.js.
+Welcome to the frontend application repository for the KYC (Know Your Customer) platform.
 
-## Technologies
+## 🎯 Repository Purpose
+This repository contains the user-facing web application where customers interact with the KYC platform to upload their identification documents and verify their identity. It is decoupled from the backend logic and communicates with our backend microservices via REST APIs.
 
-- React.js
-- Vite (Build Tool)
-- TailwindCSS (Styling)
+## 🛠️ Technology Stack
+- **Framework**: React / Next.js (or equivalent modern JS framework)
+- **Containerization**: Docker
+- **CI/CD**: GitHub Actions & Jenkins
 
-## Prerequisites
+### Key Resources Managed:
+- **Application Source Code**: All HTML, CSS, and JavaScript components.
+- **Dockerfile**: The container definition to package the frontend application into a lightweight, production-ready Nginx image.
 
-- Node.js (v18+)
-- npm or yarn
+---
 
-## Getting Started
+## 🔑 Environment Variables & Secrets
 
-1.  Navigate to the repository:
-    ```bash
-    cd kyc-frontend
-    ```
-2.  Install dependencies:
-    ```bash
-    npm install
-    ```
-3.  Run the development server:
-    ```bash
-    npm run dev
-    ```
+The frontend application requires specific environment variables during build time and runtime to connect to the correct backend services.
 
-## Building for Production
+### 1. `NEXT_PUBLIC_API_URL` (or `REACT_APP_API_URL`)
+- **What it is**: The public endpoint of the backend API gateway or the specific eKYC/vKYC services.
+- **Where to use it**: Configured in `.env` files locally, or injected into the container at runtime.
+- **How to create**: If running in Kubernetes, this value is passed via the Helm chart's `values-<env>.yaml` file located in the `kyc-gitops` repository.
 
-To create a production build:
-```bash
-npm run build
-```
+### 2. AWS ECR Deployment Variables
+To push the built Docker image to AWS Elastic Container Registry (ECR), the CI/CD pipeline requires:
+- `AWS_ROLE_TO_ASSUME`: GitHub Secret containing the IAM Role ARN.
+- `AWS_REGION`: Environment variable in the pipeline (e.g., `us-east-1`).
+- `ECR_REPOSITORY`: The name of the ECR repository (e.g., `kyc-frontend`).
 
-## Docker
+---
 
-Build the Docker image:
-```bash
-docker build -t kyc-frontend:latest .
-```
+## 🚀 CI/CD Pipeline & Workflow
 
-## CI/CD
+This repository uses a standard Continuous Integration pipeline:
 
-This repository includes a `Jenkinsfile` for CI/CD pipeline automation, including build, test, scan, and deployment stages.
-ensure to configure your Jenkins environment with necessary credentials and tools.
+1. **Build & Test (PR)**: 
+   - When a PR is opened, the code is linted and tested.
+2. **Docker Build & Push (Merge)**:
+   - When code is merged to `main`, the `docker-build.yml` workflow triggers.
+   - It builds the Docker container.
+   - It pushes the container image to AWS ECR with a unique tag (usually the Git SHA).
+3. **Deployment Handoff**:
+   - Once the image is pushed, a developer must update the `image.tag` value in the `kyc-gitops` repository to deploy the new version to Kubernetes via ArgoCD.

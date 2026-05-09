@@ -1,0 +1,55 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = 'us-east-1'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Terraform Format Check') {
+            steps {
+                dir('kyc-terraform') {
+                    sh 'terraform fmt -check -recursive'
+                }
+            }
+        }
+
+        stage('Security Scan (Checkov)') {
+            steps {
+                dir('kyc-terraform') {
+                    sh 'checkov -d . --quiet'
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            when {
+                branch 'PR-*'
+            }
+            steps {
+                dir('kyc-terraform/environments/prod') {
+                    sh 'terraform init'
+                    sh 'terraform plan -out=tfplan'
+                }
+            }
+        }
+
+        stage('Terraform Apply') {
+            when {
+                branch 'main'
+            }
+            steps {
+                dir('kyc-terraform/environments/prod') {
+                    sh 'terraform init'
+                    sh 'terraform apply -auto-approve'
+                }
+            }
+        }
+    }
+}

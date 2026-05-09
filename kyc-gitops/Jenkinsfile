@@ -1,0 +1,27 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Helm Lint') {
+            steps {
+                dir('kyc-k8s') {
+                    sh 'helm lint .'
+                }
+            }
+        }
+
+        stage('ArgoCD Application Validation') {
+            steps {
+                dir('kyc-argocd') {
+                    sh 'argocd app validate kyc-app.yaml'
+                }
+            }
+        }
+    }
+}

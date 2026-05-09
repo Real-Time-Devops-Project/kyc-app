@@ -1,0 +1,17 @@
+name: Build and Push eKYC Service
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t kyc-ekyc-service:latest .
+
+      - name: Push to Registry (Stub)
+        run: echo "Pushing kyc-ekyc-service:latest to registry..."

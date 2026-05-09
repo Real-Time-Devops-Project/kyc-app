@@ -1,0 +1,17 @@
+name: Build and Push KYC Frontend
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t kyc-frontend:latest .
+
+      - name: Push to Registry (Stub)
+        run: echo "Pushing kyc-frontend:latest to registry..."

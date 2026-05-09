@@ -1,0 +1,19 @@
+name: Lint Helm Charts
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'kyc-k8s/**'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Helm
+        uses: azure/setup-helm@v4.2.0
+
+      - name: Lint KYC Helm Chart
+        run: helm lint kyc-k8s/
